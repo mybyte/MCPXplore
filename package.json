@@ -1,0 +1,62 @@
+{
+  "name": "mcpxplore",
+  "version": "0.1.0",
+  "description": "Electron LLM Chat + MCP Explorer",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "unset ELECTRON_RUN_AS_NODE && electron-vite dev",
+    "build": "unset ELECTRON_RUN_AS_NODE && electron-vite build",
+    "start": "unset ELECTRON_RUN_AS_NODE && electron-vite preview",
+    "build:mac": "unset ELECTRON_RUN_AS_NODE && electron-vite build && electron-builder --mac",
+    "build:win": "unset ELECTRON_RUN_AS_NODE && electron-vite build && electron-builder --win",
+    "build:linux": "unset ELECTRON_RUN_AS_NODE && electron-vite build && electron-builder --linux"
+  },
+  "build": {
+    "appId": "com.mcpxplore.app",
+    "productName": "MCPXplore",
+    "directories": {
+      "output": "dist",
+      "buildResources": "resources"
+    },
+    "files": [
+      "out/**/*"
+    ],
+    "mac": {
+      "target": ["dmg", "zip"],
+      "category": "public.app-category.developer-tools"
+    },
+    "win": {
+      "target": ["nsis", "zip"]
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Development"
+    }
+  },
+  "dependencies": {
+    "@ai-sdk/azure": "^3.0.42",
+    "@ai-sdk/mcp": "^1.0.25",
+    "@ai-sdk/openai": "^3.0.41",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "ai": "^6.0.116",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.577.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "tailwind-merge": "^3.5.0",
+    "zustand": "^5.0.12"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.2.2",
+    "@types/node": "^25.5.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "5",
+    "electron": "33",
+    "electron-builder": "^26.8.1",
+    "electron-vite": "^5.0.0",
+    "tailwindcss": "^4.2.2",
+    "typescript": "^5.9.3",
+    "vite": "6"
+  }
+}

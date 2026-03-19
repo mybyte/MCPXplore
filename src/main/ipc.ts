@@ -1,0 +1,96 @@
+import { ipcMain, BrowserWindow } from 'electron'
+import { getConfigStore } from './config/store'
+import { getMcpManager } from './mcp/manager'
+import { handleChatSend, stopChat } from './llm/chat'
+import type { AppConfig } from './config/store'
+
+export function registerIpcHandlers(): void {
+  const store = getConfigStore()
+  const mcpManager = getMcpManager()
+
+  // Broadcast MCP status changes to all renderer windows
+  mcpManager.onStatusChange((statuses) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      win.webContents.send('mcp:status', statuses)
+    }
+  })
+
+  // ── Config ─────────────────────────────────────────────────────────
+
+  ipcMain.handle('config:getAll', () => store.getAll())
+
+  ipcMain.handle('config:get', (_event, key: keyof AppConfig) => store.get(key))
+
+  ipcMain.handle('config:set', (_event, key: keyof AppConfig, value: unknown) => {
+    store.set(key, value as AppConfig[typeof key])
+  })
+
+  ipcMain.handle('config:update', (_event, patch: Partial<AppConfig>) => {
+    store.update(patch)
+  })
+
+  ipcMain.handle('config:llmProviders:set', (_event, providers) => {
+    store.set('llmProviders', providers)
+  })
+
+  ipcMain.handle('config:embeddingsProviders:set', (_event, providers) => {
+    store.set('embeddingsProviders', providers)
+  })
+
+  ipcMain.handle('config:mcpServers:set', (_event, servers) => {
+    store.set('mcpServers', servers)
+  })
+
+  ipcMain.handle('config:chats:set', (_event, chats) => {
+    store.set('chats', chats)
+  })
+
+  // ── MCP ────────────────────────────────────────────────────────────
+
+  ipcMain.handle('mcp:connect', async (_event, serverId: string) => {
+    const configs = store.get('mcpServers')
+    const config = configs.find((s) => s.id === serverId)
+    if (!config) throw new Error(`MCP server config not found: ${serverId}`)
+    return mcpManager.connect(config)
+  })
+
+  ipcMain.handle('mcp:disconnect', async (_event, serverId: string) => {
+    await mcpManager.disconnect(serverId)
+  })
+
+  ipcMain.handle('mcp:listTools', async (_event, serverId: string) => {
+    return mcpManager.listTools(serverId)
+  })
+
+  ipcMain.handle('mcp:callTool', async (_event, serverId: string, toolName: string, args: Record<string, unknown>) => {
+    return mcpManager.callTool(serverId, toolName, args)
+  })
+
+  ipcMain.handle('mcp:listResources', async (_event, serverId: string) => {
+    return mcpManager.listResources(serverId)
+  })
+
+  ipcMain.handle('mcp:readResource', async (_event, serverId: string, uri: string) => {
+    return mcpManager.readResource(serverId, uri)
+  })
+
+  ipcMain.handle('mcp:getStatuses', () => {
+    return mcpManager.getAllStatuses()
+  })
+
+  ipcMain.handle('mcp:connectAll', async () => {
+    const configs = store.get('mcpServers')
+    const results = await Promise.allSettled(configs.map((c) => mcpManager.connect(c)))
+    return results.map((r) => (r.status === 'fulfilled' ? r.value : { error: String(r.reason) }))
+  })
+
+  // ── LLM Chat ───────────────────────────────────────────────────────
+
+  ipcMain.handle('llm:send', async (_event, chatId: string, message: string, options: Record<string, unknown>) => {
+    await handleChatSend(chatId, message, options as never)
+  })
+
+  ipcMain.handle('llm:stop', (_event, chatId: string) => {
+    stopChat(chatId)
+  })
+}
