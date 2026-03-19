@@ -1,0 +1,15 @@
+---
+description: Use Bun as the package manager and runtime instead of Node.js
+alwaysApply: true
+---
+
+# Bun Runtime & Package Manager
+
+This project uses **Bun** exclusively — not Node.js.
+
+- Use `bun` to run scripts, not `node`
+- Use `bun install` / `bun add` / `bun remove` for dependency management, not `npm` or `yarn`
+- Use `bunx` instead of `npx`
+- Use `bun test` for running tests
+- The project is packaged with a bundled Bun binary — do not assume Node.js is available at runtime
+- Prefer Bun-native APIs (e.g., `Bun.serve`, `Bun.file`, `Bun.write`) over Node.js equivalents when available
