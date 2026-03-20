@@ -4,6 +4,7 @@ import { getConfigStore } from '../config/store'
 import { generateEmbeddings } from '../llm/embeddings'
 import { formatApiError } from '../llm/format-error'
 import type { McpToolInfo } from '../mcp/types'
+import { updateToolsSearchIndex } from './search-index'
 
 const TOOLS_COLLECTION = 'mcpxplore_tools'
 const BATCH_SIZE = 100
@@ -165,6 +166,9 @@ export async function removeToolEmbeddingField(fieldName: string): Promise<void>
     if (result.modifiedCount > 0) {
       console.info(`[mongo] removeToolEmbeddingField: removed embeddings.${fieldName} from ${result.modifiedCount} doc(s)`)
     }
+
+    const remainingConfigs = getConfigStore().get('toolEmbeddings')
+    void updateToolsSearchIndex(remainingConfigs)
   } catch (err) {
     console.warn(
       `[mongo] removeToolEmbeddingField failed for ${fieldName}: ${err instanceof Error ? err.message : String(err)}`

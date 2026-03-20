@@ -1,4 +1,6 @@
 import { MongoClient, type Document } from 'mongodb'
+import { getConfigStore } from '../config/store'
+import { TOOLS_COLLECTION, ensureToolsSearchIndex } from './search-index'
 
 const CHATS_COLLECTION = 'mcpxplore_chats'
 
@@ -44,8 +46,19 @@ export async function mongoEnsureDatabase(
     client = new MongoClient(uri, { serverSelectionTimeoutMS: 12_000 })
     await client.connect()
     const db = client.db(databaseName.trim())
-    const hasColl = await db.listCollections({ name: CHATS_COLLECTION }).hasNext()
-    if (!hasColl) await db.createCollection(CHATS_COLLECTION)
+
+    const hasChatsColl = await db.listCollections({ name: CHATS_COLLECTION }).hasNext()
+    if (!hasChatsColl) await db.createCollection(CHATS_COLLECTION)
+
+    const hasToolsColl = await db.listCollections({ name: TOOLS_COLLECTION }).hasNext()
+    if (!hasToolsColl) await db.createCollection(TOOLS_COLLECTION)
+
+    const toolsColl = db.collection(TOOLS_COLLECTION)
+    await toolsColl.createIndex({ serverId: 1, name: 1 }, { unique: true }).catch(() => {})
+
+    const embeddingConfigs = getConfigStore().get('toolEmbeddings')
+    await ensureToolsSearchIndex(toolsColl, embeddingConfigs)
+
     return { ok: true }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) }

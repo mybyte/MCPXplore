@@ -15,8 +15,6 @@ interface McpToolDoc extends Document {
   syncedAt: Date
 }
 
-let indexesEnsured = false
-
 /**
  * Sync all tools of a single MCP server to MongoDB.
  *
@@ -44,11 +42,6 @@ export async function syncMcpServerTools(
     client = new MongoClient(connectionUri, { serverSelectionTimeoutMS: 12_000 })
     await client.connect()
     const coll = client.db(chatDatabase.trim()).collection<McpToolDoc>(TOOLS_COLLECTION)
-
-    if (!indexesEnsured) {
-      await coll.createIndex({ serverId: 1, name: 1 }, { unique: true }).catch(() => {})
-      indexesEnsured = true
-    }
 
     if (tools.length === 0) {
       await coll.deleteMany({ serverId })

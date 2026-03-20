@@ -14,6 +14,7 @@ export function MongoConfig() {
   const [testBusy, setTestBusy] = useState(false)
   const [testMessage, setTestMessage] = useState<string | null>(null)
   const [ensureBusy, setEnsureBusy] = useState(false)
+  const [dbEnsured, setDbEnsured] = useState(false)
   const [saveBusy, setSaveBusy] = useState(false)
 
   useEffect(() => {
@@ -75,10 +76,11 @@ export function MongoConfig() {
         databaseName: db
       })
       if (result.ok) {
+        setDbEnsured(true)
         await runTest()
         setTestMessage((prev) =>
           prev
-            ? `${prev} · Database "${db}" is ready (collection mcpxplore_chats).`
+            ? `${prev} · Database "${db}" is ready.`
             : `Database "${db}" is ready.`
         )
       } else {
@@ -148,7 +150,7 @@ export function MongoConfig() {
           </div>
           <textarea
             value={connectionUri}
-            onChange={(e) => { setConnectionUri(e.target.value); if (!revealed) setRevealed(true) }}
+            onChange={(e) => { setConnectionUri(e.target.value); setDbEnsured(false); if (!revealed) setRevealed(true) }}
             placeholder="mongodb://user:pass@host:27017 or mongodb+srv://..."
             rows={3}
             className={cn(
@@ -198,7 +200,7 @@ export function MongoConfig() {
               value={databases.includes(chatDatabase) ? chatDatabase : ''}
               onChange={(e) => {
                 const v = e.target.value
-                if (v) setChatDatabase(v)
+                if (v) { setChatDatabase(v); setDbEnsured(false) }
               }}
               className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
             >
@@ -217,13 +219,13 @@ export function MongoConfig() {
           <input
             type="text"
             value={chatDatabase}
-            onChange={(e) => setChatDatabase(e.target.value)}
+            onChange={(e) => { setChatDatabase(e.target.value); setDbEnsured(false) }}
             placeholder="e.g. mcpxplore"
             className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm font-mono outline-none focus:ring-1 focus:ring-ring"
             spellCheck={false}
           />
           <span className="text-[11px] text-muted-foreground">
-            Type a new name and use &quot;Create database&quot; if it does not exist yet.
+            Type a new name or pick one above, then click &quot;Create database&quot; to verify before saving.
           </span>
         </label>
 
@@ -245,7 +247,8 @@ export function MongoConfig() {
           <button
             type="button"
             onClick={() => void saveSettings()}
-            disabled={saveBusy}
+            disabled={saveBusy || !dbEnsured}
+            title={!dbEnsured ? 'Create or verify the database first' : undefined}
             className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
           >
             {saveBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Database className="size-3.5" />}

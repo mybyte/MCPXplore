@@ -20,6 +20,7 @@ import {
   getAllBackfillStatuses,
   onBackfillStatus
 } from './mongo/tool-embeddings'
+import { updateToolsSearchIndex, bootstrapToolsCollection } from './mongo/search-index'
 
 const LOG_LEVELS = new Set(['error', 'warn', 'info', 'debug'])
 
@@ -176,6 +177,8 @@ export function registerIpcHandlers(): void {
         void backfillToolEmbeddings(cfg)
       }
     }
+
+    void updateToolsSearchIndex(configs)
   })
 
   ipcMain.handle('config:chats:set', (_event, chats) => {
@@ -188,6 +191,7 @@ export function registerIpcHandlers(): void {
       mongo = { ...mongo, connectionUri: existing.connectionUri }
     }
     store.set('mongo', mongo)
+    void bootstrapToolsCollection()
   })
 
   // ── MCP ────────────────────────────────────────────────────────────
@@ -359,4 +363,7 @@ export function registerIpcHandlers(): void {
       )
     }
   )
+
+  // Bootstrap tools collection + search index on startup if MongoDB is configured
+  void bootstrapToolsCollection()
 }
