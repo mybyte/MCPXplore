@@ -1,6 +1,38 @@
 import { create } from 'zustand'
 
-export type McpToolsMode = 'all' | 'pick'
+export type McpToolsMode = 'all' | 'pick' | 'semantic' | 'agentic'
+
+export interface ToolSelectionConfig {
+  semanticContextTokens: number
+  semanticToolLimit: number
+  semanticScoreCutoff: number
+  semanticEmbeddingFieldName: string
+
+  agenticContextTokens: number
+  agenticProviderId: string
+  agenticModelId: string
+  agenticSearchMode: 'keyword' | 'vector' | 'hybrid'
+  agenticToolLimit: number
+  agenticScoreCutoff: number
+  agenticEmbeddingFieldName: string
+  agenticHybridWeights: { keyword: number; vector: number }
+}
+
+export const DEFAULT_TOOL_SELECTION_CONFIG: ToolSelectionConfig = {
+  semanticContextTokens: 500,
+  semanticToolLimit: 5,
+  semanticScoreCutoff: 0,
+  semanticEmbeddingFieldName: '',
+
+  agenticContextTokens: 5000,
+  agenticProviderId: '',
+  agenticModelId: '',
+  agenticSearchMode: 'keyword',
+  agenticToolLimit: 10,
+  agenticScoreCutoff: 0,
+  agenticEmbeddingFieldName: '',
+  agenticHybridWeights: { keyword: 1, vector: 1 }
+}
 
 export interface Message {
   id: string
@@ -30,6 +62,9 @@ export interface Chat {
   enabledTools: string[]
   providerId: string
   modelId: string
+  systemPrompt: string
+  agenticSystemPrompt: string
+  toolSelectionConfig: ToolSelectionConfig
   createdAt: number
 }
 
@@ -46,6 +81,7 @@ interface ChatState {
   updateMessage: (chatId: string, messageId: string, patch: Partial<Message>) => void
   setEnabledTools: (chatId: string, tools: string[]) => void
   setMcpToolsMode: (chatId: string, mode: McpToolsMode) => void
+  setToolSelectionConfig: (chatId: string, config: Partial<ToolSelectionConfig>) => void
 }
 
 let nextId = 1
@@ -61,14 +97,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   createChat: () => {
     const id = generateId()
+    const state = get()
+    const prev = state.chats.find((c) => c.id === state.activeChatId) ?? state.chats[0]
     const chat: Chat = {
       id,
       title: 'New Chat',
       messages: [],
-      mcpToolsMode: 'all',
-      enabledTools: [],
-      providerId: '',
-      modelId: '',
+      mcpToolsMode: prev?.mcpToolsMode ?? 'all',
+      enabledTools: prev?.enabledTools ? [...prev.enabledTools] : [],
+      providerId: prev?.providerId ?? '',
+      modelId: prev?.modelId ?? '',
+      systemPrompt: prev?.systemPrompt ?? '',
+      agenticSystemPrompt: prev?.agenticSystemPrompt ?? '',
+      toolSelectionConfig: prev?.toolSelectionConfig
+        ? { ...prev.toolSelectionConfig }
+        : { ...DEFAULT_TOOL_SELECTION_CONFIG },
       createdAt: Date.now()
     }
     set((s) => ({ chats: [chat, ...s.chats], activeChatId: id }))
@@ -128,5 +171,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setMcpToolsMode: (chatId, mode) =>
     set((s) => ({
       chats: s.chats.map((c) => (c.id === chatId ? { ...c, mcpToolsMode: mode } : c))
+    })),
+
+  setToolSelectionConfig: (chatId, patch) =>
+    set((s) => ({
+      chats: s.chats.map((c) =>
+        c.id === chatId
+          ? { ...c, toolSelectionConfig: { ...c.toolSelectionConfig, ...patch } }
+          : c
+      )
     }))
 }))

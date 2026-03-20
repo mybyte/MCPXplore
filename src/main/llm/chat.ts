@@ -1,6 +1,6 @@
 import { BrowserWindow } from 'electron'
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
-import { getConfigStore, type LlmProviderConfig } from '../config/store'
+import { getConfigStore, type LlmProviderConfig, type ToolSelectionConfig, DEFAULT_TOOL_SELECTION_CONFIG } from '../config/store'
 import { createClient, chatRequestDefaults } from './providers'
 import {
   buildChatCompletionTools,
@@ -9,6 +9,7 @@ import {
   executeToolCall,
   buildToolResultMessages
 } from './tools'
+import { resolveToolSelection } from './tool-selection'
 import { ThinkTagParser } from './reasoning'
 import { formatApiError } from './format-error'
 
@@ -29,7 +30,7 @@ function clipForChatUi(full: string): string {
 }
 
 export interface ChatStreamEvent {
-  type: 'text-delta' | 'reasoning-delta' | 'tool-call-start' | 'tool-call-result' | 'usage' | 'error' | 'finish'
+  type: 'text-delta' | 'reasoning-delta' | 'tool-call-start' | 'tool-call-result' | 'tool-selection' | 'usage' | 'error' | 'finish'
   chatId: string
   messageId: string
   data?: unknown
@@ -41,10 +42,13 @@ export async function handleChatSend(
   options: {
     providerId: string
     modelId: string
-    mcpToolsMode?: 'all' | 'pick'
+    mcpToolsMode?: 'all' | 'pick' | 'semantic' | 'agentic'
     enabledTools: string[]
     messages: Array<{ role: string; content: string }>
     messageId?: string
+    systemPrompt?: string
+    agenticSystemPrompt?: string
+    toolSelectionConfig?: Partial<ToolSelectionConfig>
   }
 ): Promise<void> {
   const store = getConfigStore()
@@ -65,14 +69,43 @@ export async function handleChatSend(
 
   try {
     const mode = options.mcpToolsMode ?? 'all'
-    const selection: McpToolsSelection =
-      mode === 'all' ? { mode: 'all' } : { mode: 'pick', keys: options.enabledTools }
+    let selection: McpToolsSelection
+
+    if (mode === 'semantic' || mode === 'agentic') {
+      const tsConfig: ToolSelectionConfig = {
+        ...DEFAULT_TOOL_SELECTION_CONFIG,
+        ...options.toolSelectionConfig
+      }
+      const result = await resolveToolSelection({
+        mode,
+        config: tsConfig,
+        agenticSystemPrompt: options.agenticSystemPrompt ?? '',
+        messages: options.messages,
+        currentMessage: message,
+        signal: abortController.signal
+      })
+
+      broadcast({ type: 'tool-selection', chatId, messageId, data: result.trace })
+
+      selection = { mode: 'pick', keys: result.keys }
+    } else {
+      selection = mode === 'all' ? { mode: 'all' } : { mode: 'pick', keys: options.enabledTools }
+    }
+
     const { tools, serverMap } = buildChatCompletionTools(selection)
 
-    const messages: ChatCompletionMessageParam[] = options.messages.map((m) => ({
-      role: m.role as 'user' | 'assistant' | 'system',
-      content: m.content
-    }))
+    const messages: ChatCompletionMessageParam[] = []
+
+    if (options.systemPrompt?.trim()) {
+      messages.push({ role: 'system', content: options.systemPrompt.trim() })
+    }
+
+    for (const m of options.messages) {
+      messages.push({
+        role: m.role as 'user' | 'assistant' | 'system',
+        content: m.content
+      })
+    }
     messages.push({ role: 'user', content: message })
 
     const defaults = chatRequestDefaults(provider)

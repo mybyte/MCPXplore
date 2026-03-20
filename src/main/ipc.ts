@@ -3,6 +3,7 @@ import { getConfigStore, REDACTED } from './config/store'
 import type { MongoSettings, SecretsScope, LlmProviderConfig, EmbeddingsProviderConfig, McpServerConfig, ToolEmbeddingConfig } from './config/store'
 import { getMcpManager } from './mcp/manager'
 import { handleChatSend, stopChat, testLlmConnection } from './llm/chat'
+import { DEFAULT_AGENTIC_SYSTEM_PROMPT } from './llm/tool-selection'
 import { testEmbeddingsConnection } from './llm/embeddings'
 import { fetchAvailableModels, type FetchModelsRequest } from './llm/models'
 import { formatApiError } from './llm/format-error'
@@ -185,6 +186,8 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('config:chats:set', (_event, chats) => {
     store.set('chats', chats)
   })
+
+  ipcMain.handle('config:defaultAgenticSystemPrompt', () => DEFAULT_AGENTIC_SYSTEM_PROMPT)
 
   ipcMain.handle('config:mongo:set', (_event, mongo: MongoSettings) => {
     if (mongo.connectionUri === REDACTED || mongo.connectionUri.includes('***')) {

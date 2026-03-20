@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { useChatStore, type Message } from '@/stores/chatStore'
+import { useChatStore, type Message, DEFAULT_TOOL_SELECTION_CONFIG } from '@/stores/chatStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useAppStore } from '@/stores/appStore'
-import { WorkingsPanel, type WorkingsData } from './WorkingsPanel'
+import { WorkingsPanel, type WorkingsData, type ToolSearchTrace } from './WorkingsPanel'
 import {
   MessageSquare,
   Send,
@@ -38,6 +38,7 @@ export function ChatView() {
   const updateChat = useChatStore((s) => s.updateChat)
   const setEnabledTools = useChatStore((s) => s.setEnabledTools)
   const setMcpToolsMode = useChatStore((s) => s.setMcpToolsMode)
+  const setToolSelectionConfig = useChatStore((s) => s.setToolSelectionConfig)
   const llmProviders = useSettingsStore((s) => s.llmProviders)
   const workingsPanelOpen = useAppStore((s) => s.workingsPanelOpen)
   const toggleWorkingsPanel = useAppStore((s) => s.toggleWorkingsPanel)
@@ -197,6 +198,11 @@ export function ChatView() {
           }))
           break
         }
+        case 'tool-selection': {
+          const d = e.data as ToolSearchTrace
+          setWorkings((w) => ({ ...w, toolSearchTrace: d }))
+          break
+        }
         case 'usage': {
           const d = e.data as { promptTokens: number; completionTokens: number; totalTokens: number }
           setWorkings((w) => ({ ...w, usage: d }))
@@ -244,7 +250,8 @@ export function ChatView() {
         reasoning: '',
         toolCalls: [],
         usage: undefined,
-        model: `${prov?.name} / ${selectedModel}`
+        model: `${prov?.name} / ${selectedModel}`,
+        toolSearchTrace: undefined
       })
       try {
         await window.api.chatSend(activeChatId, userText, {
@@ -253,7 +260,10 @@ export function ChatView() {
           mcpToolsMode: chat?.mcpToolsMode ?? 'all',
           enabledTools: chat?.enabledTools ?? [],
           messages: priorMessagesForApi,
-          messageId: assistantMsgId
+          messageId: assistantMsgId,
+          systemPrompt: chat?.systemPrompt ?? '',
+          agenticSystemPrompt: chat?.agenticSystemPrompt ?? '',
+          toolSelectionConfig: chat?.toolSelectionConfig ?? DEFAULT_TOOL_SELECTION_CONFIG
         })
       } catch (err) {
         logUiError('ChatView.chatSend', err, { chatId: activeChatId })
@@ -627,9 +637,13 @@ export function ChatView() {
             <p className="mt-1 text-[10px] text-muted-foreground">
               {activeChat.mcpToolsMode === 'all'
                 ? 'MCP tools: all connected servers'
-                : activeChat.enabledTools.length > 0
-                  ? `MCP tools: ${activeChat.enabledTools.length} selected (side panel)`
-                  : 'MCP tools: none (side panel)'}
+                : activeChat.mcpToolsMode === 'semantic'
+                  ? 'MCP tools: semantic search (auto)'
+                  : activeChat.mcpToolsMode === 'agentic'
+                    ? 'MCP tools: agentic search (auto)'
+                    : activeChat.enabledTools.length > 0
+                      ? `MCP tools: ${activeChat.enabledTools.length} selected (side panel)`
+                      : 'MCP tools: none (side panel)'}
             </p>
           </div>
         </div>
@@ -642,8 +656,14 @@ export function ChatView() {
         onClose={toggleWorkingsPanel}
         mcpToolsMode={activeChat.mcpToolsMode}
         enabledTools={activeChat.enabledTools}
+        systemPrompt={activeChat.systemPrompt ?? ''}
+        agenticSystemPrompt={activeChat.agenticSystemPrompt ?? ''}
+        toolSelectionConfig={activeChat.toolSelectionConfig ?? DEFAULT_TOOL_SELECTION_CONFIG}
         onMcpModeChange={(mode) => setMcpToolsMode(activeChat.id, mode)}
         onMcpToolsChange={(tools) => setEnabledTools(activeChat.id, tools)}
+        onSystemPromptChange={(v) => updateChat(activeChat.id, { systemPrompt: v })}
+        onAgenticSystemPromptChange={(v) => updateChat(activeChat.id, { agenticSystemPrompt: v })}
+        onToolSelectionConfigChange={(patch) => setToolSelectionConfig(activeChat.id, patch)}
       />
     </div>
   )

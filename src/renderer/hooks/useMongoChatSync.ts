@@ -1,14 +1,19 @@
 import { useEffect, useRef } from 'react'
 import { useSettingsStore } from '@/stores/settingsStore'
-import { useChatStore, type Chat, type Message } from '@/stores/chatStore'
+import { useChatStore, type Chat, type Message, type McpToolsMode, DEFAULT_TOOL_SELECTION_CONFIG } from '@/stores/chatStore'
 import { logUiError } from '@/lib/rendererLog'
+
+const VALID_TOOLS_MODES = new Set<McpToolsMode>(['all', 'pick', 'semantic', 'agentic'])
 
 function parseLoadedChat(raw: Record<string, unknown>): Chat | null {
   const id = String(raw.id ?? '')
   if (!id) return null
   const messages = Array.isArray(raw.messages) ? (raw.messages as Message[]) : []
-  const mode = raw.mcpToolsMode === 'pick' ? 'pick' : 'all'
   const enabledTools = Array.isArray(raw.enabledTools) ? raw.enabledTools.map(String) : []
+  const rawMode = String(raw.mcpToolsMode ?? 'all')
+  const mode: McpToolsMode = VALID_TOOLS_MODES.has(rawMode as McpToolsMode)
+    ? (rawMode as McpToolsMode)
+    : enabledTools.length > 0 ? 'pick' : 'all'
   return {
     id,
     title: String(raw.title ?? 'Chat'),
@@ -17,6 +22,11 @@ function parseLoadedChat(raw: Record<string, unknown>): Chat | null {
     enabledTools,
     providerId: String(raw.providerId ?? ''),
     modelId: String(raw.modelId ?? ''),
+    systemPrompt: typeof raw.systemPrompt === 'string' ? raw.systemPrompt : '',
+    agenticSystemPrompt: typeof raw.agenticSystemPrompt === 'string' ? raw.agenticSystemPrompt : '',
+    toolSelectionConfig: raw.toolSelectionConfig && typeof raw.toolSelectionConfig === 'object'
+      ? { ...DEFAULT_TOOL_SELECTION_CONFIG, ...(raw.toolSelectionConfig as Record<string, unknown>) } as Chat['toolSelectionConfig']
+      : { ...DEFAULT_TOOL_SELECTION_CONFIG },
     createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : Date.now()
   }
 }

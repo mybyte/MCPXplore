@@ -66,6 +66,9 @@ const api = {
     chats: Record<string, unknown>[]
   }) => ipcRenderer.invoke('mongo:syncChats', payload),
 
+  getDefaultAgenticSystemPrompt: () =>
+    ipcRenderer.invoke('config:defaultAgenticSystemPrompt') as Promise<string>,
+
   // Tool search
   searchTools: (params: Record<string, unknown>) =>
     ipcRenderer.invoke('tools:search', params) as Promise<unknown[]>,

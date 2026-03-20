@@ -64,22 +64,82 @@ export interface McpServerConfig {
   refreshInterval?: number
 }
 
+export type McpToolsMode = 'all' | 'pick' | 'semantic' | 'agentic'
+
+export interface ToolSelectionConfig {
+  semanticContextTokens: number
+  semanticToolLimit: number
+  semanticScoreCutoff: number
+  semanticEmbeddingFieldName: string
+
+  agenticContextTokens: number
+  agenticProviderId: string
+  agenticModelId: string
+  agenticSearchMode: 'keyword' | 'vector' | 'hybrid'
+  agenticToolLimit: number
+  agenticScoreCutoff: number
+  agenticEmbeddingFieldName: string
+  agenticHybridWeights: { keyword: number; vector: number }
+}
+
+export const DEFAULT_TOOL_SELECTION_CONFIG: ToolSelectionConfig = {
+  semanticContextTokens: 500,
+  semanticToolLimit: 5,
+  semanticScoreCutoff: 0,
+  semanticEmbeddingFieldName: '',
+
+  agenticContextTokens: 5000,
+  agenticProviderId: '',
+  agenticModelId: '',
+  agenticSearchMode: 'keyword',
+  agenticToolLimit: 10,
+  agenticScoreCutoff: 0,
+  agenticEmbeddingFieldName: '',
+  agenticHybridWeights: { keyword: 1, vector: 1 }
+}
+
 export interface ChatMeta {
   id: string
   title: string
-  mcpToolsMode: 'all' | 'pick'
+  mcpToolsMode: McpToolsMode
   enabledTools: string[]
   providerId: string
   modelId: string
+  systemPrompt: string
+  agenticSystemPrompt: string
+  toolSelectionConfig: ToolSelectionConfig
   createdAt: number
+}
+
+const VALID_TOOLS_MODES = new Set<McpToolsMode>(['all', 'pick', 'semantic', 'agentic'])
+
+function normalizeToolSelectionConfig(raw: unknown): ToolSelectionConfig {
+  if (!raw || typeof raw !== 'object') return { ...DEFAULT_TOOL_SELECTION_CONFIG }
+  const c = raw as Partial<ToolSelectionConfig>
+  return {
+    semanticContextTokens: typeof c.semanticContextTokens === 'number' ? c.semanticContextTokens : DEFAULT_TOOL_SELECTION_CONFIG.semanticContextTokens,
+    semanticToolLimit: typeof c.semanticToolLimit === 'number' ? c.semanticToolLimit : DEFAULT_TOOL_SELECTION_CONFIG.semanticToolLimit,
+    semanticScoreCutoff: typeof c.semanticScoreCutoff === 'number' ? c.semanticScoreCutoff : DEFAULT_TOOL_SELECTION_CONFIG.semanticScoreCutoff,
+    semanticEmbeddingFieldName: typeof c.semanticEmbeddingFieldName === 'string' ? c.semanticEmbeddingFieldName : '',
+    agenticContextTokens: typeof c.agenticContextTokens === 'number' ? c.agenticContextTokens : DEFAULT_TOOL_SELECTION_CONFIG.agenticContextTokens,
+    agenticProviderId: typeof c.agenticProviderId === 'string' ? c.agenticProviderId : '',
+    agenticModelId: typeof c.agenticModelId === 'string' ? c.agenticModelId : '',
+    agenticSearchMode: c.agenticSearchMode === 'keyword' || c.agenticSearchMode === 'vector' || c.agenticSearchMode === 'hybrid' ? c.agenticSearchMode : 'keyword',
+    agenticToolLimit: typeof c.agenticToolLimit === 'number' ? c.agenticToolLimit : DEFAULT_TOOL_SELECTION_CONFIG.agenticToolLimit,
+    agenticScoreCutoff: typeof c.agenticScoreCutoff === 'number' ? c.agenticScoreCutoff : DEFAULT_TOOL_SELECTION_CONFIG.agenticScoreCutoff,
+    agenticEmbeddingFieldName: typeof c.agenticEmbeddingFieldName === 'string' ? c.agenticEmbeddingFieldName : '',
+    agenticHybridWeights: c.agenticHybridWeights && typeof c.agenticHybridWeights === 'object'
+      ? { keyword: Number(c.agenticHybridWeights.keyword) || 1, vector: Number(c.agenticHybridWeights.vector) || 1 }
+      : { ...DEFAULT_TOOL_SELECTION_CONFIG.agenticHybridWeights }
+  }
 }
 
 function normalizeChatMeta(entry: unknown): ChatMeta {
   const c = entry as Partial<ChatMeta>
   const enabledTools = Array.isArray(c.enabledTools) ? c.enabledTools : []
-  const mcpToolsMode: 'all' | 'pick' =
-    c.mcpToolsMode === 'pick' || c.mcpToolsMode === 'all'
-      ? c.mcpToolsMode
+  const mcpToolsMode: McpToolsMode =
+    typeof c.mcpToolsMode === 'string' && VALID_TOOLS_MODES.has(c.mcpToolsMode as McpToolsMode)
+      ? (c.mcpToolsMode as McpToolsMode)
       : enabledTools.length > 0
         ? 'pick'
         : 'all'
@@ -90,6 +150,9 @@ function normalizeChatMeta(entry: unknown): ChatMeta {
     enabledTools,
     providerId: String(c.providerId ?? ''),
     modelId: String(c.modelId ?? ''),
+    systemPrompt: typeof c.systemPrompt === 'string' ? c.systemPrompt : '',
+    agenticSystemPrompt: typeof c.agenticSystemPrompt === 'string' ? c.agenticSystemPrompt : '',
+    toolSelectionConfig: normalizeToolSelectionConfig((c as Record<string, unknown>).toolSelectionConfig),
     createdAt: typeof c.createdAt === 'number' ? c.createdAt : Date.now()
   }
 }
