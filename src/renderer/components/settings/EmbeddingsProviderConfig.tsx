@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useSettingsStore, type EmbeddingsProvider } from '@/stores/settingsStore'
 import { Plus, Pencil, Trash2, X, Check, Loader2, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { ModelPicker } from './ModelPicker'
 
 const PROVIDER_TYPES = [
   { value: 'openai', label: 'OpenAI' },
@@ -40,7 +41,6 @@ function ProviderForm({
       models: []
     }
   )
-  const [modelsText, setModelsText] = useState(form.models.join(', '))
   const [formTestBusy, setFormTestBusy] = useState(false)
   const [formTestMessage, setFormTestMessage] = useState<string | null>(null)
 
@@ -53,17 +53,8 @@ function ProviderForm({
   }
 
   const handleSave = () => {
-    const models = modelsText
-      .split(',')
-      .map((m) => m.trim())
-      .filter(Boolean)
-    onSave({ ...form, models })
+    onSave(form)
   }
-
-  const parsedModels = modelsText
-    .split(',')
-    .map((m) => m.trim())
-    .filter(Boolean)
 
   const runFormTest = async () => {
     setFormTestMessage(null)
@@ -71,16 +62,15 @@ function ProviderForm({
       setFormTestMessage('Set a base URL before testing.')
       return
     }
-    if (parsedModels.length === 0) {
-      setFormTestMessage('Add at least one model ID (comma-separated) to run a test.')
+    if (form.models.length === 0) {
+      setFormTestMessage('Add at least one model to run a test.')
       return
     }
     setFormTestBusy(true)
     try {
-      const provider: EmbeddingsProvider = { ...form, models: parsedModels }
       const result = await window.api.embeddingsTestConnection({
-        provider,
-        modelId: parsedModels[0]
+        provider: form,
+        modelId: form.models[0]
       })
       if (result.ok) {
         const tok =
@@ -165,18 +155,16 @@ function ProviderForm({
         </label>
       )}
 
-      <label className="block space-y-1">
-        <span className="text-xs font-medium text-muted-foreground">
-          Models (comma-separated)
-        </span>
-        <input
-          type="text"
-          value={modelsText}
-          onChange={(e) => setModelsText(e.target.value)}
-          placeholder="text-embedding-3-small, text-embedding-3-large"
-          className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
-        />
-      </label>
+      <ModelPicker
+        models={form.models}
+        onChange={(models) => update({ models })}
+        providerConfig={{
+          type: form.type,
+          baseUrl: form.baseUrl,
+          apiKey: form.apiKey,
+          apiVersion: form.apiVersion
+        }}
+      />
 
       {formTestMessage && (
         <p

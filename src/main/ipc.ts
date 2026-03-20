@@ -3,6 +3,7 @@ import { getConfigStore } from './config/store'
 import { getMcpManager } from './mcp/manager'
 import { handleChatSend, stopChat, testLlmConnection } from './llm/chat'
 import { testEmbeddingsConnection } from './llm/embeddings'
+import { fetchAvailableModels, type FetchModelsRequest } from './llm/models'
 import { formatApiError } from './llm/format-error'
 import type { AppConfig } from './config/store'
 import {
@@ -204,6 +205,15 @@ export function registerIpcHandlers(): void {
       console.error(`[embeddings:testConnection]\n${result.error}`)
     }
     return result
+  })
+
+  ipcMain.handle('models:fetch', async (_event, payload: unknown) => {
+    try {
+      return await fetchAvailableModels(payload as FetchModelsRequest)
+    } catch (err) {
+      console.error(`[models:fetch]\n${formatApiError(err)}`)
+      throw err
+    }
   })
 
   // ── MongoDB (chat history) ────────────────────────────────────────

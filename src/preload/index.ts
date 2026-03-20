@@ -46,6 +46,8 @@ const api = {
     ipcRenderer.invoke('llm:testConnection', payload),
   embeddingsTestConnection: (payload: Record<string, unknown>) =>
     ipcRenderer.invoke('embeddings:testConnection', payload),
+  fetchModels: (config: { type: string; baseUrl: string; apiKey: string; apiVersion?: string }) =>
+    ipcRenderer.invoke('models:fetch', config) as Promise<string[]>,
 
   mongoTestConnection: (connectionUri: string) =>
     ipcRenderer.invoke('mongo:testConnection', connectionUri),
