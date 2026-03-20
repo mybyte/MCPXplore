@@ -104,6 +104,7 @@ export function registerIpcHandlers(): void {
       return s
     })
     store.set('mcpServers', merged)
+    mcpManager.applySavedServerConfigs(merged)
   })
 
   ipcMain.handle('config:chats:set', (_event, chats) => {

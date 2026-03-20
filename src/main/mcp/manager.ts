@@ -1,6 +1,9 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import {
+  StreamableHTTPClientTransport,
+  StreamableHTTPError
+} from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
 import type { McpServerConfig } from '../config/store'
 import type {
@@ -22,6 +25,39 @@ function normalizeMcpConfig(config: McpServerConfig): McpServerConfig {
   return { ...config, transport }
 }
 
+function isRemoteMcpTransport(config: McpServerConfig): boolean {
+  const t = normalizeMcpConfig(config).transport
+  return t === 'streamable-http' || t === 'sse'
+}
+
+/** After an MCP HTTP server restarts, the client still sends a stale `mcp-session-id` until we reconnect. */
+function looksLikeLostRemoteSessionError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  const lower = msg.toLowerCase()
+  if (lower.includes('session not found')) return true
+  if (lower.includes('invalid session')) return true
+  if (lower.includes('unknown session')) return true
+  if (lower.includes('session expired')) return true
+  // JSON-RPC invalid request often used for bad / missing session
+  if (msg.includes('-32600') && lower.includes('session')) return true
+  if (err instanceof StreamableHTTPError && typeof err.code === 'number' && err.code === 404) return true
+  return false
+}
+
+function looksLikeDeadRemoteTransport(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  if (msg.toLowerCase().includes('connection closed')) return true
+  if (err && typeof err === 'object' && 'code' in err) {
+    const c = (err as { code: unknown }).code
+    if (c === -32000) return true
+  }
+  return false
+}
+
+function shouldAttemptRemoteTransportReconnect(err: unknown): boolean {
+  return looksLikeLostRemoteSessionError(err) || looksLikeDeadRemoteTransport(err)
+}
+
 interface ManagedServer {
   config: McpServerConfig
   client: Client
@@ -33,6 +69,7 @@ interface ManagedServer {
 class McpManager {
   private servers = new Map<string, ManagedServer>()
   private statusCallback?: (statuses: McpServerStatus[]) => void
+  private refreshInProgress = new Set<string>()
 
   onStatusChange(callback: (statuses: McpServerStatus[]) => void) {
     this.statusCallback = callback
@@ -67,28 +104,7 @@ class McpManager {
     let transport: StdioClientTransport | StreamableHTTPClientTransport | SSEClientTransport
 
     try {
-      if (config.transport === 'stdio') {
-        // Let the SDK merge getDefaultEnvironment() + config.env — do not pass full
-        // process.env (Electron pollutes the child and breaks clients like docker -e VAR).
-        const extraEnv = config.env
-        const cleaned =
-          extraEnv &&
-          Object.fromEntries(
-            Object.entries(extraEnv).filter((entry): entry is [string, string] => {
-              const v = entry[1]
-              return typeof v === 'string' && v.length > 0
-            })
-          )
-        transport = new StdioClientTransport({
-          command: config.command!,
-          args: config.args ?? [],
-          env: cleaned && Object.keys(cleaned).length > 0 ? cleaned : undefined
-        })
-      } else if (config.transport === 'streamable-http') {
-        transport = new StreamableHTTPClientTransport(new URL(config.url!))
-      } else {
-        transport = new SSEClientTransport(new URL(config.url!))
-      }
+      transport = this.createTransportForConfig(config)
 
       this.servers.set(config.id, { config, client, transport, status })
       this.notifyStatus()
@@ -150,8 +166,24 @@ class McpManager {
     if (!intervalSec || intervalSec <= 0) return
 
     server.refreshTimer = setInterval(() => {
-      this.refreshCapabilities(serverId).catch(() => {})
+      void this.refreshCapabilities(serverId)
     }, intervalSec * 1000)
+  }
+
+  /**
+   * When the config store's mcpServers list changes, connected servers still hold the old
+   * in-memory config (including refreshInterval). Merge saved configs and restart timers.
+   */
+  applySavedServerConfigs(configs: McpServerConfig[]): void {
+    for (const raw of configs) {
+      const config = normalizeMcpConfig(raw)
+      const managed = this.servers.get(config.id)
+      if (!managed) continue
+      managed.config = config
+      if (managed.status.status === 'connected') {
+        this.startRefreshTimer(config.id)
+      }
+    }
   }
 
   private clearRefreshTimer(serverId: string): void {
@@ -165,32 +197,154 @@ class McpManager {
   async refreshCapabilities(serverId: string): Promise<McpServerStatus | null> {
     const server = this.servers.get(serverId)
     if (!server || server.status.status !== 'connected') return null
+    if (this.refreshInProgress.has(serverId)) return server.status
 
-    const [tools, resources, resourceTemplates, prompts] = await Promise.all([
-      this.fetchTools(serverId, server.client),
-      this.fetchResources(serverId, server.client),
-      this.fetchResourceTemplates(serverId, server.client),
-      this.fetchPrompts(serverId, server.client)
-    ])
+    this.refreshInProgress.add(serverId)
+    try {
+      const applyLists = async () => {
+        const [tools, resources, resourceTemplates, prompts] = await Promise.all([
+          this.listToolsFromClient(serverId, server.client),
+          this.listResourcesFromClient(serverId, server.client),
+          this.listResourceTemplatesFromClient(serverId, server.client),
+          this.listPromptsFromClient(serverId, server.client)
+        ])
+        server.status.tools = tools
+        server.status.resources = resources
+        server.status.resourceTemplates = resourceTemplates
+        server.status.prompts = prompts
+        this.notifyStatus()
+      }
 
-    server.status.tools = tools
-    server.status.resources = resources
-    server.status.resourceTemplates = resourceTemplates
-    server.status.prompts = prompts
-    this.notifyStatus()
+      const maxAttempts = 2
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          await applyLists()
+          break
+        } catch (err) {
+          const canRetry =
+            attempt < maxAttempts - 1 &&
+            isRemoteMcpTransport(server.config) &&
+            shouldAttemptRemoteTransportReconnect(err)
+          if (canRetry) {
+            console.info(
+              `[mcp] remote transport error for ${serverId} (${err instanceof Error ? err.message : String(err)}); reconnecting`
+            )
+            await this.reconnectRemoteMcpSession(serverId)
+            continue
+          }
+          throw err
+        }
+      }
+    } catch (err) {
+      // Keep last known capabilities; periodic refresh and manual retry will run again.
+      const msg = err instanceof Error ? err.message : String(err)
+      console.warn(`[mcp] refreshCapabilities failed serverId=${serverId}: ${msg}`)
+    } finally {
+      this.refreshInProgress.delete(serverId)
+    }
 
     return server.status
   }
 
+  private createTransportForConfig(
+    config: McpServerConfig
+  ): StdioClientTransport | StreamableHTTPClientTransport | SSEClientTransport {
+    const c = normalizeMcpConfig(config)
+    if (c.transport === 'stdio') {
+      const extraEnv = c.env
+      const cleaned =
+        extraEnv &&
+        Object.fromEntries(
+          Object.entries(extraEnv).filter((entry): entry is [string, string] => {
+            const v = entry[1]
+            return typeof v === 'string' && v.length > 0
+          })
+        )
+      return new StdioClientTransport({
+        command: c.command!,
+        args: c.args ?? [],
+        env: cleaned && Object.keys(cleaned).length > 0 ? cleaned : undefined
+      })
+    }
+    if (c.transport === 'streamable-http') {
+      return new StreamableHTTPClientTransport(new URL(c.url!))
+    }
+    return new SSEClientTransport(new URL(c.url!))
+  }
+
+  /**
+   * Close the current remote transport and connect with a new one so Streamable HTTP gets a
+   * fresh session (e.g. after the MCP server process restarted).
+   */
+  private async reconnectRemoteMcpSession(serverId: string): Promise<void> {
+    const server = this.servers.get(serverId)
+    if (!server) throw new Error(`MCP server not found: ${serverId}`)
+    const config = normalizeMcpConfig(server.config)
+    if (!isRemoteMcpTransport(config)) return
+
+    try {
+      await server.client.close()
+    } catch {
+      // ignore
+    }
+
+    const transport = this.createTransportForConfig(config)
+    server.transport = transport
+    await server.client.connect(transport)
+  }
+
+  private async listToolsFromClient(serverId: string, client: Client): Promise<McpToolInfo[]> {
+    const result = await client.listTools()
+    return (result.tools ?? []).map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema as Record<string, unknown>,
+      serverId
+    }))
+  }
+
+  private async listResourcesFromClient(serverId: string, client: Client): Promise<McpResourceInfo[]> {
+    const result = await client.listResources()
+    return (result.resources ?? []).map((resource) => ({
+      uri: resource.uri,
+      name: resource.name,
+      description: resource.description,
+      mimeType: resource.mimeType,
+      serverId
+    }))
+  }
+
+  private async listResourceTemplatesFromClient(
+    serverId: string,
+    client: Client
+  ): Promise<McpResourceTemplateInfo[]> {
+    const result = await client.listResourceTemplates()
+    return (result.resourceTemplates ?? []).map((t) => ({
+      uriTemplate: t.uriTemplate,
+      name: t.name,
+      description: t.description,
+      mimeType: t.mimeType,
+      serverId
+    }))
+  }
+
+  private async listPromptsFromClient(serverId: string, client: Client): Promise<McpPromptInfo[]> {
+    const result = await client.listPrompts()
+    return (result.prompts ?? []).map((p) => ({
+      name: p.name,
+      description: p.description,
+      arguments: p.arguments?.map((a) => ({
+        name: a.name,
+        description: a.description,
+        required: a.required
+      })),
+      serverId
+    }))
+  }
+
   private async fetchTools(serverId: string, client: Client): Promise<McpToolInfo[]> {
     try {
-      const result = await client.listTools()
-      return (result.tools ?? []).map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        inputSchema: tool.inputSchema as Record<string, unknown>,
-        serverId
-      }))
+      return await this.listToolsFromClient(serverId, client)
     } catch {
       return []
     }
@@ -198,14 +352,7 @@ class McpManager {
 
   private async fetchResources(serverId: string, client: Client): Promise<McpResourceInfo[]> {
     try {
-      const result = await client.listResources()
-      return (result.resources ?? []).map((resource) => ({
-        uri: resource.uri,
-        name: resource.name,
-        description: resource.description,
-        mimeType: resource.mimeType,
-        serverId
-      }))
+      return await this.listResourcesFromClient(serverId, client)
     } catch {
       return []
     }
@@ -216,14 +363,7 @@ class McpManager {
     client: Client
   ): Promise<McpResourceTemplateInfo[]> {
     try {
-      const result = await client.listResourceTemplates()
-      return (result.resourceTemplates ?? []).map((t) => ({
-        uriTemplate: t.uriTemplate,
-        name: t.name,
-        description: t.description,
-        mimeType: t.mimeType,
-        serverId
-      }))
+      return await this.listResourceTemplatesFromClient(serverId, client)
     } catch {
       return []
     }
@@ -231,17 +371,7 @@ class McpManager {
 
   private async fetchPrompts(serverId: string, client: Client): Promise<McpPromptInfo[]> {
     try {
-      const result = await client.listPrompts()
-      return (result.prompts ?? []).map((p) => ({
-        name: p.name,
-        description: p.description,
-        arguments: p.arguments?.map((a) => ({
-          name: a.name,
-          description: a.description,
-          required: a.required
-        })),
-        serverId
-      }))
+      return await this.listPromptsFromClient(serverId, client)
     } catch {
       return []
     }
