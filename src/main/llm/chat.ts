@@ -84,14 +84,16 @@ export async function handleChatSend(
     error: undefined
   }
 
-  const persistTurn = () => {
+  const persistTurn = async () => {
     const mongo = store.get('mongo')
     const uri = mongo.connectionUri?.trim()
     const db = mongo.chatDatabase?.trim()
     if (!uri || !db) return
-    mongoSaveChatTurn(uri, db, turn).catch((e) =>
+    try {
+      await mongoSaveChatTurn(uri, db, turn)
+    } catch (e) {
       console.error('[llm:chat] Failed to persist turn:', e)
-    )
+    }
   }
 
   try {
@@ -369,8 +371,8 @@ export async function handleChatSend(
     turn.durations = durationsData
     broadcast({ type: 'durations', chatId, messageId, data: durationsData })
 
+    await persistTurn()
     broadcast({ type: 'finish', chatId, messageId })
-    persistTurn()
   } catch (err) {
     if (!abortController.signal.aborted) {
       const full = formatApiError(err)
@@ -383,8 +385,8 @@ export async function handleChatSend(
         data: clipForChatUi(full)
       })
     }
+    await persistTurn()
     broadcast({ type: 'finish', chatId, messageId })
-    persistTurn()
   } finally {
     activeAbortControllers.delete(chatId)
   }

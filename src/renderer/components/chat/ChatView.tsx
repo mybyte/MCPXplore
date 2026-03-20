@@ -63,6 +63,8 @@ export function ChatView() {
     usage: undefined,
     model: undefined
   })
+  const workingsRef = useRef(workings)
+  workingsRef.current = workings
 
   // Historical turns loaded from MongoDB
   const [historicalTurns, setHistoricalTurns] = useState<HistoricalTurn[]>([])
@@ -251,7 +253,34 @@ export function ChatView() {
         }
         case 'finish': {
           setIsStreaming(false)
-          if (e.chatId) void loadHistoricalTurns(e.chatId)
+          // Read latest workings from a ref — do not call setHistoricalTurns inside setWorkings'
+          // functional updater: React Strict Mode double-invokes those updaters in dev and would
+          // append the same turn twice. Dedupe by message id in case finish is ever signaled twice.
+          const w = workingsRef.current
+          const hasContent =
+            w.reasoning ||
+            w.toolCalls.length > 0 ||
+            w.usage ||
+            w.durations ||
+            w.model ||
+            w.toolSearchTrace
+          if (hasContent) {
+            const snapshot: HistoricalTurn = {
+              _id: e.messageId,
+              chatId: e.chatId,
+              model: w.model,
+              timestamp: Date.now(),
+              reasoning: w.reasoning || undefined,
+              toolSelection: w.toolSearchTrace,
+              toolCalls: w.toolCalls.length > 0 ? w.toolCalls : undefined,
+              usage: w.usage,
+              durations: w.durations
+            }
+            const mid = e.messageId
+            setHistoricalTurns((prev) =>
+              prev.some((p) => String(p._id) === mid) ? prev : [snapshot, ...prev]
+            )
+          }
           break
         }
       }
@@ -259,7 +288,7 @@ export function ChatView() {
     return () => {
       cleanup()
     }
-  }, [activeChatId, loadHistoricalTurns])
+  }, [activeChatId])
 
   const submitUserTurn = useCallback(
     async (
