@@ -1,9 +1,9 @@
 import OpenAI, { AzureOpenAI } from 'openai'
-import type { LlmProviderConfig } from '../config/store'
+import type { LlmProviderConfig, EmbeddingsProviderConfig } from '../config/store'
 
 export type ProviderType = LlmProviderConfig['type']
 
-export function createClient(config: LlmProviderConfig): OpenAI {
+export function createClient(config: LlmProviderConfig | EmbeddingsProviderConfig): OpenAI {
   switch (config.type) {
     case 'openai':
       return new OpenAI({ apiKey: config.apiKey, baseURL: config.baseUrl || undefined })
@@ -29,6 +29,18 @@ export function createClient(config: LlmProviderConfig): OpenAI {
           'HTTP-Referer': 'https://mcpxplore.com',
           'X-Title': 'MCPXplore'
         }
+      })
+
+    case 'voyage':
+      return new OpenAI({
+        apiKey: config.apiKey,
+        baseURL: config.baseUrl || 'https://api.voyageai.com/v1'
+      })
+
+    case 'voyage-mongo':
+      return new OpenAI({
+        apiKey: config.apiKey,
+        baseURL: config.baseUrl || 'https://ai.mongodb.com/v1'
       })
 
     default:

@@ -7,7 +7,7 @@ async function embedSingleText(
   modelId: string,
   text: string
 ): Promise<{ embedding: number[]; usage?: { totalTokens: number } }> {
-  const client = createClient(provider as never)
+  const client = createClient(provider)
   const response = await client.embeddings.create({
     model: modelId,
     input: text
@@ -41,7 +41,7 @@ export async function generateEmbeddings(
   const provider = providers.find((p) => p.id === providerId)
   if (!provider) throw new Error(`Embeddings provider not found: ${providerId}`)
 
-  const client = createClient(provider as never)
+  const client = createClient(provider)
   const response = await client.embeddings.create({
     model: modelId,
     input: texts

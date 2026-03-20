@@ -13,7 +13,7 @@ export interface LlmProvider {
 export interface EmbeddingsProvider {
   id: string
   name: string
-  type: 'openai' | 'azure' | 'fireworks' | 'openrouter'
+  type: 'openai' | 'azure' | 'fireworks' | 'openrouter' | 'voyage' | 'voyage-mongo'
   baseUrl: string
   apiKey: string
   models: string[]
