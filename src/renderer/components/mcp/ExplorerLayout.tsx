@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react'
-import { History, Blocks, PanelRightClose, PanelRightOpen, Trash2, BrainCircuit } from 'lucide-react'
+import { History, Blocks, PanelRightClose, PanelRightOpen, Trash2, BrainCircuit, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useMcpStore } from '@/stores/mcpStore'
 import { useSettingsStore, type McpServerConfig as McpServerConfigType } from '@/stores/settingsStore'
@@ -12,6 +12,7 @@ import { CallHistory } from './CallHistory'
 import { ServerForm } from '@/components/settings/McpServerConfig'
 import { RawJsonDisclosure } from './RawJsonDisclosure'
 import { ToolEmbeddingsConfig } from './ToolEmbeddingsConfig'
+import { ToolSearch } from './ToolSearch'
 
 const MIN_RAIL_W = 140
 const MAX_RAIL_W = 280
@@ -20,7 +21,7 @@ const MIN_BROWSER_W = 200
 const MAX_BROWSER_W = 420
 const DEFAULT_BROWSER_W = 260
 
-type ConfigMode = null | { type: 'add' } | { type: 'edit'; serverId: string } | { type: 'embeddings' }
+type ConfigMode = null | { type: 'add' } | { type: 'edit'; serverId: string } | { type: 'embeddings' } | { type: 'search' }
 
 export function ExplorerLayout() {
   const selection = useMcpStore((s) => s.selection)
@@ -102,6 +103,20 @@ export function ExplorerLayout() {
         <div className="flex items-center gap-1">
           <button
             onClick={() =>
+              setConfigMode((m) => (m?.type === 'search' ? null : { type: 'search' }))
+            }
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs transition-colors',
+              configMode?.type === 'search'
+                ? 'bg-accent text-accent-foreground'
+                : 'text-muted-foreground hover:bg-accent/50'
+            )}
+          >
+            <Search className="size-3.5" />
+            Search
+          </button>
+          <button
+            onClick={() =>
               setConfigMode((m) => (m?.type === 'embeddings' ? null : { type: 'embeddings' }))
             }
             className={cn(
@@ -153,7 +168,11 @@ export function ExplorerLayout() {
           onMouseDown={(e) => onMouseDown('rail', e)}
         />
 
-        {configMode?.type === 'embeddings' ? (
+        {configMode?.type === 'search' ? (
+          <div className="flex-1 min-w-0 overflow-hidden">
+            <ToolSearch onClose={() => setConfigMode(null)} />
+          </div>
+        ) : configMode?.type === 'embeddings' ? (
           <div className="flex-1 min-w-0 overflow-y-auto p-6">
             <ToolEmbeddingsConfig onClose={() => setConfigMode(null)} />
           </div>

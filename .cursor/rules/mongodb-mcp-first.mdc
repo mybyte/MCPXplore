@@ -1,0 +1,25 @@
+---
+description: Prefer MongoDB MCP (user-mongo-mcp) for live DB work before shell or ad-hoc scripts
+alwaysApply: true
+---
+
+# MongoDB: use MCP first
+
+When the user asks for anything that touches a **live MongoDB cluster**—including schema or shape exploration, collection or database listing, queries, aggregations, counts, explains, exports, CRUD, **index management** (list, create, drop), storage stats, logs, or connection switching—**try the MongoDB MCP server first** (`user-mongo-mcp` / mongo-mcp).
+
+## Order of operations
+
+1. **Discover tools**: Inspect MCP tool schemas under the project’s MCP descriptors (e.g. `collection-schema`, `collection-indexes`, `list-collections`, `list-databases`, `create-index`, `drop-index`, `aggregate`, `find`, `explain`, etc.).
+2. **Call MCP tools** to answer from the configured cluster when that is sufficient.
+3. **Fall back** to code, CLI (`mongosh`), or other methods only if MCP is unavailable, insufficient for the task, or the user explicitly wants a non-MCP approach.
+
+## Examples
+
+| Task | Prefer |
+|------|--------|
+| “What fields/types does collection X have?” | `collection-schema` (or equivalent) via MCP |
+| “What indexes exist on X?” | `collection-indexes` via MCP |
+| “Add a compound index on …” | `create-index` via MCP (after confirming name/options) |
+| “How many docs match …?” | `count` / `aggregate` via MCP |
+
+Keep answers grounded in MCP results when you used them; say when you had to fall back and why.

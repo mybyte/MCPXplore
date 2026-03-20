@@ -66,6 +66,15 @@ const api = {
     chats: Record<string, unknown>[]
   }) => ipcRenderer.invoke('mongo:syncChats', payload),
 
+  // Tool search
+  searchTools: (params: Record<string, unknown>) =>
+    ipcRenderer.invoke('tools:search', params) as Promise<unknown[]>,
+  searchToolsFacets: () =>
+    ipcRenderer.invoke('tools:searchFacets') as Promise<{
+      servers: { _id: string; count: number }[]
+      toolNames: { _id: string; count: number }[]
+    }>,
+
   // Streaming events from main -> renderer
   onChatStream: (callback: (event: unknown) => void) => {
     const handler = (_: unknown, event: unknown) => callback(event)

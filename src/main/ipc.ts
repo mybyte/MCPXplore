@@ -21,6 +21,7 @@ import {
   onBackfillStatus
 } from './mongo/tool-embeddings'
 import { updateToolsSearchIndex, bootstrapToolsCollection } from './mongo/search-index'
+import { searchTools, searchToolsFacets, type ToolSearchParams } from './mongo/tool-search'
 
 const LOG_LEVELS = new Set(['error', 'warn', 'info', 'debug'])
 
@@ -363,6 +364,16 @@ export function registerIpcHandlers(): void {
       )
     }
   )
+
+  // ── Tool Search ────────────────────────────────────────────────────
+
+  ipcMain.handle('tools:search', async (_event, params: ToolSearchParams) => {
+    return searchTools(params)
+  })
+
+  ipcMain.handle('tools:searchFacets', async () => {
+    return searchToolsFacets()
+  })
 
   // Bootstrap tools collection + search index on startup if MongoDB is configured
   void bootstrapToolsCollection()
