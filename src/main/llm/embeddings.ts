@@ -1,33 +1,21 @@
-import { embed, embedMany } from 'ai'
-import { createOpenAI } from '@ai-sdk/openai'
 import { getConfigStore, type EmbeddingsProviderConfig } from '../config/store'
-import { formatAiSdkApiError } from './format-ai-sdk-error'
-import { voyageEmbed } from './voyage-adapter'
+import { createClient } from './providers'
+import { formatApiError } from './format-error'
 
 async function embedSingleText(
   provider: EmbeddingsProviderConfig,
   modelId: string,
-  text: string,
-  options?: { maxRetries?: number }
+  text: string
 ): Promise<{ embedding: number[]; usage?: { totalTokens: number } }> {
-  if (provider.type === 'voyage') {
-    const result = await voyageEmbed(provider.baseUrl, provider.apiKey, modelId, text)
-    return { embedding: result.embeddings[0], usage: result.usage }
-  }
-
-  const openai = createOpenAI({
-    apiKey: provider.apiKey,
-    baseURL: provider.baseUrl,
-    compatibility: 'compatible'
+  const client = createClient(provider as never)
+  const response = await client.embeddings.create({
+    model: modelId,
+    input: text
   })
 
-  const { embedding, usage } = await embed({
-    model: openai.textEmbeddingModel(modelId),
-    value: text,
-    maxRetries: options?.maxRetries ?? 2
-  })
-
-  return { embedding, usage: { totalTokens: usage?.tokens ?? 0 } }
+  const embedding = response.data[0]?.embedding ?? []
+  const totalTokens = response.usage?.total_tokens ?? 0
+  return { embedding, usage: { totalTokens } }
 }
 
 export async function generateEmbedding(
@@ -53,22 +41,17 @@ export async function generateEmbeddings(
   const provider = providers.find((p) => p.id === providerId)
   if (!provider) throw new Error(`Embeddings provider not found: ${providerId}`)
 
-  if (provider.type === 'voyage') {
-    return voyageEmbed(provider.baseUrl, provider.apiKey, modelId, texts)
-  }
-
-  const openai = createOpenAI({
-    apiKey: provider.apiKey,
-    baseURL: provider.baseUrl,
-    compatibility: 'compatible'
+  const client = createClient(provider as never)
+  const response = await client.embeddings.create({
+    model: modelId,
+    input: texts
   })
 
-  const { embeddings, usage } = await embedMany({
-    model: openai.textEmbeddingModel(modelId),
-    values: texts
-  })
-
-  return { embeddings, usage: { totalTokens: usage?.tokens ?? 0 } }
+  const embeddings = response.data
+    .sort((a, b) => a.index - b.index)
+    .map((d) => d.embedding)
+  const totalTokens = response.usage?.total_tokens ?? 0
+  return { embeddings, usage: { totalTokens } }
 }
 
 const TEST_EMBED_TEXT = 'embedding endpoint check'
@@ -81,7 +64,6 @@ export type EmbeddingsTestResult =
   | { ok: true; modelId: string; dimensions: number; totalTokens?: number }
   | { ok: false; error: string }
 
-/** Single embedding request to verify URL, API key, and model ID. */
 export async function testEmbeddingsConnection(
   payload: EmbeddingsTestPayload
 ): Promise<EmbeddingsTestResult> {
@@ -107,12 +89,7 @@ export async function testEmbeddingsConnection(
       }
     }
 
-    const { embedding, usage } = await embedSingleText(
-      provider,
-      modelId.trim(),
-      TEST_EMBED_TEXT,
-      { maxRetries: 0 }
-    )
+    const { embedding, usage } = await embedSingleText(provider, modelId.trim(), TEST_EMBED_TEXT)
     const dimensions = embedding.length
     if (dimensions === 0) {
       return { ok: false, error: 'API returned an empty embedding vector.' }
@@ -125,6 +102,6 @@ export async function testEmbeddingsConnection(
       totalTokens: usage?.totalTokens
     }
   } catch (err) {
-    return { ok: false, error: formatAiSdkApiError(err) }
+    return { ok: false, error: formatApiError(err) }
   }
 }

@@ -3,7 +3,7 @@ import { getConfigStore } from './config/store'
 import { getMcpManager } from './mcp/manager'
 import { handleChatSend, stopChat, testLlmConnection } from './llm/chat'
 import { testEmbeddingsConnection } from './llm/embeddings'
-import { formatAiSdkApiError } from './llm/format-ai-sdk-error'
+import { formatApiError } from './llm/format-error'
 import type { AppConfig } from './config/store'
 
 const LOG_LEVELS = new Set(['error', 'warn', 'info', 'debug'])
@@ -125,7 +125,7 @@ export function registerIpcHandlers(): void {
     try {
       await handleChatSend(chatId, message, options as never)
     } catch (err) {
-      console.error(`[llm:send] chatId=${chatId}\n${formatAiSdkApiError(err)}`)
+      console.error(`[llm:send] chatId=${chatId}\n${formatApiError(err)}`)
       throw err
     }
   })

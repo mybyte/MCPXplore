@@ -3,19 +3,21 @@ import { create } from 'zustand'
 export interface LlmProvider {
   id: string
   name: string
-  type: 'openai' | 'azure' | 'openai-compatible'
+  type: 'openai' | 'azure' | 'fireworks' | 'openrouter'
   baseUrl: string
   apiKey: string
   models: string[]
+  apiVersion?: string
 }
 
 export interface EmbeddingsProvider {
   id: string
   name: string
-  type: 'openai-compatible' | 'voyage'
+  type: 'openai' | 'azure' | 'fireworks' | 'openrouter'
   baseUrl: string
   apiKey: string
   models: string[]
+  apiVersion?: string
 }
 
 export interface McpServerConfig {

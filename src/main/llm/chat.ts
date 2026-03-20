@@ -1,68 +1,19 @@
 import { BrowserWindow } from 'electron'
-import { generateText, streamText, type LanguageModelV1 } from 'ai'
-import { createOpenAI } from '@ai-sdk/openai'
-import { createAzure } from '@ai-sdk/azure'
+import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 import { getConfigStore, type LlmProviderConfig } from '../config/store'
-import { getMcpManager } from '../mcp/manager'
-import { formatAiSdkApiError } from './format-ai-sdk-error'
+import { createClient, chatRequestDefaults } from './providers'
+import { buildOpenAITools, ToolCallAccumulator, executeToolCall, buildToolResultMessages } from './tools'
+import { ThinkTagParser } from './reasoning'
+import { formatApiError } from './format-error'
 
+const MAX_TOOL_STEPS = 10
 const activeAbortControllers = new Map<string, AbortController>()
 
-/** Keep chat bubbles readable; full text is always logged in the main process. */
 const CHAT_ERROR_UI_MAX = 1200
 
 function clipForChatUi(full: string): string {
   if (full.length <= CHAT_ERROR_UI_MAX) return full
   return `${full.slice(0, CHAT_ERROR_UI_MAX)}…\n\n(Full error is in the terminal / main process log.)`
-}
-
-function createModel(provider: LlmProviderConfig, modelId: string): LanguageModelV1 {
-  // `openai(modelId)` / `azure(modelId)` use OpenAI's Responses API (`/v1/responses`). Most
-  // OpenAI-compatible hosts (Fireworks, Ollama, etc.) only implement chat completions (`/v1/chat/completions`).
-  switch (provider.type) {
-    case 'openai': {
-      const openai = createOpenAI({ apiKey: provider.apiKey, baseURL: provider.baseUrl })
-      return openai.chat(modelId)
-    }
-    case 'azure': {
-      const azure = createAzure({ apiKey: provider.apiKey, baseURL: provider.baseUrl })
-      return azure.chat(modelId)
-    }
-    case 'openai-compatible': {
-      const compat = createOpenAI({
-        apiKey: provider.apiKey,
-        baseURL: provider.baseUrl,
-        compatibility: 'compatible'
-      })
-      return compat.chat(modelId)
-    }
-    default:
-      throw new Error(`Unknown provider type: ${provider.type}`)
-  }
-}
-
-function buildMcpTools(enabledTools: string[]): Record<string, { description: string; parameters: Record<string, unknown>; execute: (args: Record<string, unknown>) => Promise<unknown> }> {
-  const mcpManager = getMcpManager()
-  const allStatuses = mcpManager.getAllStatuses()
-  const tools: Record<string, { description: string; parameters: Record<string, unknown>; execute: (args: Record<string, unknown>) => Promise<unknown> }> = {}
-
-  for (const server of allStatuses) {
-    if (server.status !== 'connected') continue
-    for (const tool of server.tools) {
-      const toolKey = `${server.id}:${tool.name}`
-      if (enabledTools.length > 0 && !enabledTools.includes(toolKey)) continue
-
-      tools[tool.name] = {
-        description: tool.description ?? tool.name,
-        parameters: tool.inputSchema ?? { type: 'object', properties: {} },
-        execute: async (args: Record<string, unknown>) => {
-          const result = await mcpManager.callTool(server.id, tool.name, args)
-          return result
-        }
-      }
-    }
-  }
-  return tools
 }
 
 export interface ChatStreamEvent {
@@ -80,7 +31,6 @@ export async function handleChatSend(
     modelId: string
     enabledTools: string[]
     messages: Array<{ role: string; content: string }>
-    /** Must match the assistant placeholder id in the renderer so stream events apply to the right bubble. */
     messageId?: string
   }
 ): Promise<void> {
@@ -89,7 +39,7 @@ export async function handleChatSend(
   const provider = providers.find((p) => p.id === options.providerId)
   if (!provider) throw new Error(`Provider not found: ${options.providerId}`)
 
-  const model = createModel(provider, options.modelId)
+  const client = createClient(provider)
   const messageId = options.messageId ?? `msg-${Date.now()}`
   const abortController = new AbortController()
   activeAbortControllers.set(chatId, abortController)
@@ -101,85 +51,158 @@ export async function handleChatSend(
   }
 
   try {
-    const mcpTools = buildMcpTools(options.enabledTools)
+    const { tools, serverMap } = buildOpenAITools(options.enabledTools)
 
-    // Build message history for AI SDK
-    const aiMessages = options.messages.map((m) => ({
+    const messages: ChatCompletionMessageParam[] = options.messages.map((m) => ({
       role: m.role as 'user' | 'assistant' | 'system',
       content: m.content
     }))
-    aiMessages.push({ role: 'user', content: message })
+    messages.push({ role: 'user', content: message })
 
-    const result = streamText({
-      model,
-      messages: aiMessages,
-      tools: mcpTools as never,
-      maxSteps: 10,
-      abortSignal: abortController.signal
-    })
+    const defaults = chatRequestDefaults(provider)
+    let totalInputTokens = 0
+    let totalOutputTokens = 0
 
-    for await (const part of result.fullStream) {
+    for (let step = 0; step < MAX_TOOL_STEPS; step++) {
       if (abortController.signal.aborted) break
 
-      switch (part.type) {
-        case 'text-delta':
-          broadcast({ type: 'text-delta', chatId, messageId, data: part.text })
-          break
-        case 'reasoning-delta':
-          broadcast({ type: 'reasoning-delta', chatId, messageId, data: part.text })
-          break
-        case 'tool-call':
-          broadcast({
-            type: 'tool-call-start',
-            chatId,
-            messageId,
-            data: {
-              toolCallId: part.toolCallId,
-              toolName: part.toolName,
-              args: part.args
+      const stream = await client.chat.completions.create(
+        {
+          model: options.modelId,
+          messages,
+          ...(tools.length > 0 ? { tools } : {}),
+          stream: true,
+          ...defaults
+        },
+        { signal: abortController.signal }
+      )
+
+      const accumulator = new ToolCallAccumulator()
+      const thinkParser = step === 0 ? new ThinkTagParser() : null
+      let assistantContent = ''
+
+      for await (const chunk of stream) {
+        if (abortController.signal.aborted) break
+
+        const choice = chunk.choices[0]
+
+        // Usage arrives in the final chunk (when stream_options.include_usage is set)
+        if (chunk.usage) {
+          totalInputTokens += chunk.usage.prompt_tokens ?? 0
+          totalOutputTokens += chunk.usage.completion_tokens ?? 0
+        }
+
+        if (!choice) continue
+        const delta = choice.delta
+
+        // Native reasoning (o-series models)
+        const reasoningContent = (delta as Record<string, unknown>).reasoning_content
+        if (typeof reasoningContent === 'string' && reasoningContent) {
+          broadcast({ type: 'reasoning-delta', chatId, messageId, data: reasoningContent })
+        }
+
+        // Text content (with think-tag extraction on the first step)
+        if (delta.content) {
+          if (thinkParser) {
+            const { text, reasoning } = thinkParser.push(delta.content)
+            if (reasoning) {
+              broadcast({ type: 'reasoning-delta', chatId, messageId, data: reasoning })
             }
-          })
-          break
-        case 'tool-result':
+            if (text) {
+              broadcast({ type: 'text-delta', chatId, messageId, data: text })
+              assistantContent += text
+            }
+          } else {
+            broadcast({ type: 'text-delta', chatId, messageId, data: delta.content })
+            assistantContent += delta.content
+          }
+        }
+
+        // Tool call deltas
+        if (delta.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            accumulator.feed(tc)
+          }
+        }
+      }
+
+      // Flush any remaining buffered think-tag content
+      if (thinkParser) {
+        const { text, reasoning } = thinkParser.flush()
+        if (reasoning) broadcast({ type: 'reasoning-delta', chatId, messageId, data: reasoning })
+        if (text) {
+          broadcast({ type: 'text-delta', chatId, messageId, data: text })
+          assistantContent += text
+        }
+      }
+
+      // If no tool calls were made, we're done
+      const toolCalls = accumulator.getAll()
+      if (toolCalls.length === 0) break
+
+      // Execute tool calls and broadcast events
+      const toolResults: Array<{ toolCallId: string; content: string }> = []
+
+      for (const call of toolCalls) {
+        let args: Record<string, unknown>
+        try {
+          args = JSON.parse(call.arguments || '{}')
+        } catch {
+          args = {}
+        }
+
+        broadcast({
+          type: 'tool-call-start',
+          chatId,
+          messageId,
+          data: { toolCallId: call.id, toolName: call.name, args }
+        })
+
+        try {
+          const { toolCallId, toolName, result, content } = await executeToolCall(call, serverMap)
+          toolResults.push({ toolCallId, content })
+
           broadcast({
             type: 'tool-call-result',
             chatId,
             messageId,
-            data: {
-              toolCallId: part.toolCallId,
-              toolName: part.toolName,
-              result: part.result
-            }
+            data: { toolCallId, toolName, result }
           })
-          break
-        case 'error': {
-          const errText = formatAiSdkApiError(part.error)
-          console.error(`[llm:chat:stream] chatId=${chatId} messageId=${messageId}\n${errText}`)
-          broadcast({ type: 'error', chatId, messageId, data: clipForChatUi(errText) })
-          break
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err)
+          toolResults.push({ toolCallId: call.id, content: `Error: ${errMsg}` })
+
+          broadcast({
+            type: 'tool-call-result',
+            chatId,
+            messageId,
+            data: { toolCallId: call.id, toolName: call.name, result: `Error: ${errMsg}` }
+          })
         }
       }
+
+      // Thread tool results into the conversation for the next iteration
+      const threadMsgs = buildToolResultMessages(toolCalls, toolResults, assistantContent)
+      messages.push(...threadMsgs)
+      assistantContent = ''
     }
 
-    const usage = await result.usage
-    const inputTok = usage.inputTokens ?? 0
-    const outputTok = usage.outputTokens ?? 0
-    const totalTok = usage.totalTokens ?? inputTok + outputTok
+    // Broadcast usage
     broadcast({
       type: 'usage',
       chatId,
       messageId,
       data: {
-        promptTokens: inputTok,
-        completionTokens: outputTok,
-        totalTokens: totalTok
+        promptTokens: totalInputTokens,
+        completionTokens: totalOutputTokens,
+        totalTokens: totalInputTokens + totalOutputTokens
       }
     })
 
     broadcast({ type: 'finish', chatId, messageId })
   } catch (err) {
     if (!abortController.signal.aborted) {
-      const full = formatAiSdkApiError(err)
+      const full = formatApiError(err)
       console.error(`[llm:chat] chatId=${chatId} messageId=${messageId}\n${full}`)
       broadcast({
         type: 'error',
@@ -213,7 +236,6 @@ export type LlmTestResult =
 const TEST_USER_MESSAGE =
   'Reply with a single short word only (no punctuation): the word "pong" in lowercase.'
 
-/** Minimal chat completion to verify API key, URL, and model ID. */
 export async function testLlmConnection(payload: LlmTestPayload): Promise<LlmTestResult> {
   try {
     let provider: LlmProviderConfig
@@ -237,16 +259,17 @@ export async function testLlmConnection(payload: LlmTestPayload): Promise<LlmTes
       }
     }
 
-    const model = createModel(provider, modelId.trim())
-    const { text } = await generateText({
-      model,
-      maxOutputTokens: 32,
-      maxRetries: 0,
+    const client = createClient(provider)
+    const completion = await client.chat.completions.create({
+      model: modelId.trim(),
+      max_tokens: 32,
       messages: [{ role: 'user', content: TEST_USER_MESSAGE }]
     })
-    const snippet = (text ?? '').trim().slice(0, 200)
+
+    const text = completion.choices[0]?.message?.content ?? ''
+    const snippet = text.trim().slice(0, 200)
     return { ok: true, modelId: modelId.trim(), replySnippet: snippet || '(empty reply)' }
   } catch (err) {
-    return { ok: false, error: formatAiSdkApiError(err) }
+    return { ok: false, error: formatApiError(err) }
   }
 }

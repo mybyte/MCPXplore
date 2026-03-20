@@ -11,6 +11,8 @@ import {
   Wrench,
   SlidersHorizontal,
   ChevronDown,
+  ChevronRight,
+  Brain,
   Bot,
   User
 } from 'lucide-react'
@@ -84,6 +86,12 @@ export function ChatView() {
         }
         case 'reasoning-delta': {
           setWorkings((w) => ({ ...w, reasoning: w.reasoning + String(e.data) }))
+          const store = useChatStore.getState()
+          const existing = store.chats.find((c) => c.id === e.chatId)
+            ?.messages.find((m) => m.id === e.messageId)?.reasoning ?? ''
+          store.updateMessage(e.chatId, e.messageId, {
+            reasoning: existing + String(e.data)
+          })
           break
         }
         case 'tool-call-start': {
@@ -394,6 +402,9 @@ function MessageBubble({ message }: { message: Message }) {
             : 'rounded-bl-md bg-muted'
         )}
       >
+        {!isUser && message.reasoning && (
+          <ReasoningCollapsible text={message.reasoning} />
+        )}
         <p className="text-sm whitespace-pre-wrap">{message.content || (isUser ? '' : '...')}</p>
         {message.model && (
           <p className="mt-1 text-[10px] opacity-60">{message.model}</p>
@@ -402,6 +413,34 @@ function MessageBubble({ message }: { message: Message }) {
       {isUser && (
         <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary">
           <User className="size-4 text-primary-foreground" />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ReasoningCollapsible({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false)
+
+  return (
+    <div className="mb-2 rounded-lg border border-border/50 bg-background/50">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left"
+      >
+        {expanded ? (
+          <ChevronDown className="size-3 text-muted-foreground" />
+        ) : (
+          <ChevronRight className="size-3 text-muted-foreground" />
+        )}
+        <Brain className="size-3 text-purple-500" />
+        <span className="text-xs text-muted-foreground">Thinking</span>
+      </button>
+      {expanded && (
+        <div className="border-t border-border/50 px-2.5 py-2">
+          <p className="text-[11px] text-muted-foreground whitespace-pre-wrap leading-relaxed">
+            {text}
+          </p>
         </div>
       )}
     </div>

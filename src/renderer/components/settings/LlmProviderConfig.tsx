@@ -6,13 +6,15 @@ import { cn } from '@/lib/utils'
 const PROVIDER_TYPES = [
   { value: 'openai', label: 'OpenAI' },
   { value: 'azure', label: 'Azure OpenAI' },
-  { value: 'openai-compatible', label: 'OpenAI-Compatible' }
+  { value: 'fireworks', label: 'Fireworks' },
+  { value: 'openrouter', label: 'OpenRouter' }
 ] as const
 
 const DEFAULT_URLS: Record<string, string> = {
   openai: 'https://api.openai.com/v1',
   azure: '',
-  'openai-compatible': ''
+  fireworks: 'https://api.fireworks.ai/inference/v1',
+  openrouter: 'https://openrouter.ai/api/v1'
 }
 
 function ProviderForm({
@@ -126,11 +128,13 @@ function ProviderForm({
           value={form.baseUrl}
           onChange={(e) => update({ baseUrl: e.target.value })}
           placeholder={
-            form.type === 'openai-compatible'
-              ? 'e.g. http://localhost:11434/v1'
-              : form.type === 'azure'
-                ? 'e.g. https://your-resource.openai.azure.com'
-                : 'https://api.openai.com/v1'
+            form.type === 'azure'
+              ? 'e.g. https://your-resource.openai.azure.com'
+              : form.type === 'fireworks'
+                ? 'https://api.fireworks.ai/inference/v1'
+                : form.type === 'openrouter'
+                  ? 'https://openrouter.ai/api/v1'
+                  : 'https://api.openai.com/v1'
           }
           className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
         />
@@ -146,6 +150,19 @@ function ProviderForm({
           className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
         />
       </label>
+
+      {form.type === 'azure' && (
+        <label className="block space-y-1">
+          <span className="text-xs font-medium text-muted-foreground">API Version</span>
+          <input
+            type="text"
+            value={form.apiVersion ?? ''}
+            onChange={(e) => update({ apiVersion: e.target.value || undefined })}
+            placeholder="2025-03-01-preview"
+            className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
+          />
+        </label>
+      )}
 
       <label className="block space-y-1">
         <span className="text-xs font-medium text-muted-foreground">
@@ -282,8 +299,8 @@ export function LlmProviderConfig() {
         <div>
           <h3 className="font-medium">LLM Providers</h3>
           <p className="text-sm text-muted-foreground">
-            Configure OpenAI, Azure, or any OpenAI-compatible endpoint (Fireworks, Ollama,
-            llama.cpp). Use <span className="font-medium text-foreground">Test</span> or{' '}
+            Configure OpenAI, Azure OpenAI, Fireworks, or OpenRouter as chat providers.
+            Use <span className="font-medium text-foreground">Test</span> or{' '}
             <span className="font-medium text-foreground">Test connection</span> to send a tiny
             chat request and confirm auth and the model ID.
           </p>

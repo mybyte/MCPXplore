@@ -12,19 +12,21 @@ export interface AppConfig {
 export interface LlmProviderConfig {
   id: string
   name: string
-  type: 'openai' | 'azure' | 'openai-compatible'
+  type: 'openai' | 'azure' | 'fireworks' | 'openrouter'
   baseUrl: string
   apiKey: string
   models: string[]
+  apiVersion?: string
 }
 
 export interface EmbeddingsProviderConfig {
   id: string
   name: string
-  type: 'openai-compatible' | 'voyage'
+  type: 'openai' | 'azure' | 'fireworks' | 'openrouter'
   baseUrl: string
   apiKey: string
   models: string[]
+  apiVersion?: string
 }
 
 export interface McpServerConfig {

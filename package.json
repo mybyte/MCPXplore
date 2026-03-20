@@ -34,14 +34,10 @@
     }
   },
   "dependencies": {
-    "@ai-sdk/azure": "^3.0.42",
-    "@ai-sdk/mcp": "^1.0.25",
-    "@ai-sdk/openai": "^3.0.41",
-    "@ai-sdk/provider": "3.0.8",
     "@modelcontextprotocol/sdk": "^1.27.1",
-    "ai": "^6.0.116",
     "clsx": "^2.1.1",
     "lucide-react": "^0.577.0",
+    "openai": "^6.32.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "tailwind-merge": "^3.5.0",

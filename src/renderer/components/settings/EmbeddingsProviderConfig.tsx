@@ -4,13 +4,17 @@ import { Plus, Pencil, Trash2, X, Check, Loader2, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const PROVIDER_TYPES = [
-  { value: 'openai-compatible', label: 'OpenAI-Compatible' },
-  { value: 'voyage', label: 'Voyage AI' }
+  { value: 'openai', label: 'OpenAI' },
+  { value: 'azure', label: 'Azure OpenAI' },
+  { value: 'fireworks', label: 'Fireworks' },
+  { value: 'openrouter', label: 'OpenRouter' }
 ] as const
 
 const DEFAULT_URLS: Record<string, string> = {
-  'openai-compatible': 'https://api.openai.com/v1',
-  voyage: 'https://api.voyageai.com/v1'
+  openai: 'https://api.openai.com/v1',
+  azure: '',
+  fireworks: 'https://api.fireworks.ai/inference/v1',
+  openrouter: 'https://openrouter.ai/api/v1'
 }
 
 function ProviderForm({
@@ -26,8 +30,8 @@ function ProviderForm({
     initial ?? {
       id: `emb-${Date.now()}`,
       name: '',
-      type: 'openai-compatible',
-      baseUrl: DEFAULT_URLS['openai-compatible'],
+      type: 'openai',
+      baseUrl: DEFAULT_URLS.openai,
       apiKey: '',
       models: []
     }
@@ -126,9 +130,13 @@ function ProviderForm({
           value={form.baseUrl}
           onChange={(e) => update({ baseUrl: e.target.value })}
           placeholder={
-            form.type === 'voyage'
-              ? 'https://api.voyageai.com/v1'
-              : 'https://api.openai.com/v1'
+            form.type === 'azure'
+              ? 'e.g. https://your-resource.openai.azure.com'
+              : form.type === 'fireworks'
+                ? 'https://api.fireworks.ai/inference/v1'
+                : form.type === 'openrouter'
+                  ? 'https://openrouter.ai/api/v1'
+                  : 'https://api.openai.com/v1'
           }
           className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
         />
@@ -144,6 +152,19 @@ function ProviderForm({
         />
       </label>
 
+      {form.type === 'azure' && (
+        <label className="block space-y-1">
+          <span className="text-xs font-medium text-muted-foreground">API Version</span>
+          <input
+            type="text"
+            value={form.apiVersion ?? ''}
+            onChange={(e) => update({ apiVersion: e.target.value || undefined })}
+            placeholder="2025-03-01-preview"
+            className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
+          />
+        </label>
+      )}
+
       <label className="block space-y-1">
         <span className="text-xs font-medium text-muted-foreground">
           Models (comma-separated)
@@ -152,21 +173,10 @@ function ProviderForm({
           type="text"
           value={modelsText}
           onChange={(e) => setModelsText(e.target.value)}
-          placeholder={
-            form.type === 'voyage'
-              ? 'voyage-4-large, voyage-4, voyage-4-lite'
-              : 'text-embedding-3-small, text-embedding-3-large'
-          }
+          placeholder="text-embedding-3-small, text-embedding-3-large"
           className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
         />
       </label>
-
-      {form.type === 'voyage' && (
-        <p className="text-xs text-muted-foreground bg-muted/50 rounded-md p-2">
-          Voyage AI uses a slightly different API format. The app handles field mapping
-          automatically (output_dimension, input_type).
-        </p>
-      )}
 
       {formTestMessage && (
         <p
@@ -295,8 +305,8 @@ export function EmbeddingsProviderConfig() {
         <div>
           <h3 className="font-medium">Embeddings Providers</h3>
           <p className="text-sm text-muted-foreground">
-            Configure embedding models for search and retrieval. Supports OpenAI-compatible endpoints
-            and Voyage AI. Use <span className="font-medium text-foreground">Test</span> or{' '}
+            Configure embedding models for search and retrieval.
+            Use <span className="font-medium text-foreground">Test</span> or{' '}
             <span className="font-medium text-foreground">Test connection</span> to request one
             embedding and confirm auth and the model ID.
           </p>
