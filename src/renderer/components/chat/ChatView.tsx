@@ -47,7 +47,9 @@ export function ChatView() {
   const [isStreaming, setIsStreaming] = useState(false)
   const [selectedProvider, setSelectedProvider] = useState('')
   const [selectedModel, setSelectedModel] = useState('')
+  const messagesScrollRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const streamScrollRafRef = useRef<number | null>(null)
   const rerunMenuRef = useRef<HTMLDivElement>(null)
   const [rerunMenuOpen, setRerunMenuOpen] = useState(false)
   const [editingUserMessageId, setEditingUserMessageId] = useState<string | null>(null)
@@ -95,10 +97,29 @@ export function ChatView() {
   const currentProvider = llmProviders.find((p) => p.id === selectedProvider)
   const availableModels = currentProvider?.models ?? []
 
-  // Scroll to bottom on new messages
+  // Scroll to bottom on new messages. During streaming, message updates fire very often;
+  // smooth scrollIntoView on each delta queues competing animations and makes the view jump.
   useEffect(() => {
+    if (isStreaming) {
+      if (streamScrollRafRef.current != null) return
+      streamScrollRafRef.current = requestAnimationFrame(() => {
+        streamScrollRafRef.current = null
+        const el = messagesScrollRef.current
+        if (el) el.scrollTop = el.scrollHeight
+      })
+      return
+    }
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [activeChat?.messages])
+  }, [activeChat?.messages, isStreaming])
+
+  useEffect(() => {
+    return () => {
+      if (streamScrollRafRef.current != null) {
+        cancelAnimationFrame(streamScrollRafRef.current)
+        streamScrollRafRef.current = null
+      }
+    }
+  }, [])
 
   useEffect(() => {
     setEditingUserMessageId(null)
@@ -420,7 +441,7 @@ export function ChatView() {
       {/* Chat area */}
       <div className="flex flex-1 flex-col min-w-0">
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4">
+        <div ref={messagesScrollRef} className="flex-1 overflow-y-auto p-4">
           {activeChat.messages.length === 0 ? (
             <div className="flex h-full items-center justify-center text-muted-foreground">
               <p>Send a message to start the conversation.</p>
