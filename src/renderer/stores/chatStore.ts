@@ -34,6 +34,15 @@ export const DEFAULT_TOOL_SELECTION_CONFIG: ToolSelectionConfig = {
   agenticHybridWeights: { keyword: 1, vector: 1 }
 }
 
+export interface MessageDurations {
+  totalMs: number
+  toolSelectionMs?: number
+  reasoningMs?: number
+  generationMs?: number
+  toolCallsMs: number
+  firstTokenMs?: number
+}
+
 export interface Message {
   id: string
   role: 'user' | 'assistant' | 'tool'
@@ -41,8 +50,9 @@ export interface Message {
   reasoning?: string
   toolCalls?: ToolCallInfo[]
   tokenUsage?: { input: number; output: number; total: number }
+  durations?: MessageDurations
   model?: string
-  timestamp: number
+  timestamp: Date
 }
 
 export interface ToolCallInfo {
@@ -65,7 +75,8 @@ export interface Chat {
   systemPrompt: string
   agenticSystemPrompt: string
   toolSelectionConfig: ToolSelectionConfig
-  createdAt: number
+  createdAt: Date
+  updatedAt: Date
 }
 
 interface ChatState {
@@ -112,7 +123,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       toolSelectionConfig: prev?.toolSelectionConfig
         ? { ...prev.toolSelectionConfig }
         : { ...DEFAULT_TOOL_SELECTION_CONFIG },
-      createdAt: Date.now()
+      createdAt: new Date(),
+      updatedAt: new Date()
     }
     set((s) => ({ chats: [chat, ...s.chats], activeChatId: id }))
     return id
@@ -126,7 +138,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   replaceChats: (chats) =>
     set((s) => {
-      const sorted = [...chats].sort((a, b) => b.createdAt - a.createdAt)
+      const sorted = [...chats].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
       const stillValid = sorted.some((c) => c.id === s.activeChatId)
       return {
         chats: sorted,
@@ -136,19 +148,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   updateChat: (chatId, patch) =>
     set((s) => ({
-      chats: s.chats.map((c) => (c.id === chatId ? { ...c, ...patch } : c))
+      chats: s.chats.map((c) => (c.id === chatId ? { ...c, ...patch, updatedAt: new Date() } : c))
     })),
 
   addMessage: (chatId, message) =>
     set((s) => ({
       chats: s.chats.map((c) =>
-        c.id === chatId ? { ...c, messages: [...c.messages, message] } : c
+        c.id === chatId ? { ...c, messages: [...c.messages, message], updatedAt: new Date() } : c
       )
     })),
 
   replaceChatMessages: (chatId, messages) =>
     set((s) => ({
-      chats: s.chats.map((c) => (c.id === chatId ? { ...c, messages } : c))
+      chats: s.chats.map((c) => (c.id === chatId ? { ...c, messages, updatedAt: new Date() } : c))
     })),
 
   updateMessage: (chatId, messageId, patch) =>
@@ -157,6 +169,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         c.id === chatId
           ? {
               ...c,
+              updatedAt: new Date(),
               messages: c.messages.map((m) => (m.id === messageId ? { ...m, ...patch } : m))
             }
           : c
@@ -165,19 +178,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setEnabledTools: (chatId, tools) =>
     set((s) => ({
-      chats: s.chats.map((c) => (c.id === chatId ? { ...c, enabledTools: tools } : c))
+      chats: s.chats.map((c) => (c.id === chatId ? { ...c, enabledTools: tools, updatedAt: new Date() } : c))
     })),
 
   setMcpToolsMode: (chatId, mode) =>
     set((s) => ({
-      chats: s.chats.map((c) => (c.id === chatId ? { ...c, mcpToolsMode: mode } : c))
+      chats: s.chats.map((c) => (c.id === chatId ? { ...c, mcpToolsMode: mode, updatedAt: new Date() } : c))
     })),
 
   setToolSelectionConfig: (chatId, patch) =>
     set((s) => ({
       chats: s.chats.map((c) =>
         c.id === chatId
-          ? { ...c, toolSelectionConfig: { ...c.toolSelectionConfig, ...patch } }
+          ? { ...c, toolSelectionConfig: { ...c.toolSelectionConfig, ...patch }, updatedAt: new Date() }
           : c
       )
     }))

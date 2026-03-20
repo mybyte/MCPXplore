@@ -90,13 +90,47 @@ function buildToolSelectionConfigProjection(): Record<string, unknown> {
   return out
 }
 
+function toDateExpr(field: string, fallback: unknown = '$$NOW'): Record<string, unknown> {
+  return {
+    $cond: [
+      { $isNumber: field },
+      { $toDate: field },
+      { $ifNull: [field, fallback] }
+    ]
+  }
+}
+
 const LOAD_CHATS_PIPELINE: Document[] = [
+  {
+    $addFields: {
+      messages: {
+        $map: {
+          input: { $ifNull: ['$messages', []] },
+          as: 'msg',
+          in: {
+            $mergeObjects: [
+              '$$msg',
+              {
+                timestamp: {
+                  $cond: [
+                    { $isNumber: '$$msg.timestamp' },
+                    { $toDate: '$$msg.timestamp' },
+                    '$$msg.timestamp'
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
   {
     $project: {
       _id: 0,
       id: { $toString: '$_id' },
       title: { $ifNull: ['$title', 'Chat'] },
-      messages: { $ifNull: ['$messages', []] },
+      messages: 1,
       mcpToolsMode: {
         $cond: {
           if: { $in: ['$mcpToolsMode', ['all', 'pick', 'semantic', 'agentic']] },
@@ -110,7 +144,8 @@ const LOAD_CHATS_PIPELINE: Document[] = [
       systemPrompt: { $ifNull: ['$systemPrompt', ''] },
       agenticSystemPrompt: { $ifNull: ['$agenticSystemPrompt', ''] },
       toolSelectionConfig: buildToolSelectionConfigProjection(),
-      createdAt: { $ifNull: ['$createdAt', { $toLong: new Date() }] }
+      createdAt: toDateExpr('$createdAt'),
+      updatedAt: toDateExpr('$updatedAt')
     }
   }
 ]
@@ -135,6 +170,13 @@ export async function mongoLoadChats(
   }
 }
 
+function toDate(val: unknown): Date {
+  if (val instanceof Date) return val
+  if (typeof val === 'number') return new Date(val)
+  if (typeof val === 'string') { const d = new Date(val); if (!isNaN(d.getTime())) return d }
+  return new Date()
+}
+
 /** Strip empty strings, empty arrays, and default toolSelectionConfig values to keep documents lean. */
 function toChatDoc(chat: Record<string, unknown>): ChatDoc {
   const id = String(chat.id ?? '')
@@ -148,7 +190,8 @@ function toChatDoc(chat: Record<string, unknown>): ChatDoc {
   if (chat.modelId) doc.modelId = chat.modelId
   if (chat.systemPrompt) doc.systemPrompt = chat.systemPrompt
   if (chat.agenticSystemPrompt) doc.agenticSystemPrompt = chat.agenticSystemPrompt
-  if (typeof chat.createdAt === 'number') doc.createdAt = chat.createdAt
+  doc.createdAt = toDate(chat.createdAt)
+  doc.updatedAt = toDate(chat.updatedAt)
 
   const tsc = chat.toolSelectionConfig as Record<string, unknown> | undefined
   if (tsc && typeof tsc === 'object') {

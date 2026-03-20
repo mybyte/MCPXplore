@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { useChatStore, type Message, DEFAULT_TOOL_SELECTION_CONFIG } from '@/stores/chatStore'
+import { useChatStore, type Message, type MessageDurations, DEFAULT_TOOL_SELECTION_CONFIG } from '@/stores/chatStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useAppStore } from '@/stores/appStore'
 import { WorkingsPanel, type WorkingsData, type ToolSearchTrace } from './WorkingsPanel'
@@ -187,12 +187,12 @@ export function ChatView() {
           break
         }
         case 'tool-call-result': {
-          const d = e.data as { toolCallId: string; toolName: string; result: unknown }
+          const d = e.data as { toolCallId: string; toolName: string; result: unknown; durationMs?: number }
           setWorkings((w) => ({
             ...w,
             toolCalls: w.toolCalls.map((tc) =>
               tc.id === d.toolCallId
-                ? { ...tc, result: d.result, status: 'success' as const, endTime: Date.now() }
+                ? { ...tc, result: d.result, status: 'success' as const, endTime: Date.now(), durationMs: d.durationMs }
                 : tc
             )
           }))
@@ -206,6 +206,12 @@ export function ChatView() {
         case 'usage': {
           const d = e.data as { promptTokens: number; completionTokens: number; totalTokens: number }
           setWorkings((w) => ({ ...w, usage: d }))
+          break
+        }
+        case 'durations': {
+          const d = e.data as MessageDurations
+          setWorkings((w) => ({ ...w, durations: d }))
+          useChatStore.getState().updateMessage(e.chatId, e.messageId, { durations: d })
           break
         }
         case 'error': {
@@ -312,7 +318,7 @@ export function ChatView() {
         role: 'assistant',
         content: '',
         model: modelLabel,
-        timestamp: Date.now()
+        timestamp: new Date()
       }
       addMessage(activeChatId, assistantMsg)
       const prior = buildPriorForApi(msgs, msgs.length - 1)
@@ -350,7 +356,7 @@ export function ChatView() {
       role: 'assistant',
       content: '',
       model: modelLabel,
-      timestamp: Date.now()
+      timestamp: new Date()
     }
     replaceChatMessages(activeChatId, [...truncated, assistantMsg])
     setEditingUserMessageId(null)
@@ -379,7 +385,7 @@ export function ChatView() {
       id: `msg-${Date.now()}-user`,
       role: 'user',
       content: userText,
-      timestamp: Date.now()
+      timestamp: new Date()
     }
     addMessage(activeChatId, userMsg)
 
@@ -394,7 +400,7 @@ export function ChatView() {
       role: 'assistant',
       content: '',
       model: `${currentProvider?.name}/${selectedModel}`,
-      timestamp: Date.now()
+      timestamp: new Date()
     }
     addMessage(activeChatId, assistantMsg)
 

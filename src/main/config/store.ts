@@ -108,7 +108,8 @@ export interface ChatMeta {
   systemPrompt: string
   agenticSystemPrompt: string
   toolSelectionConfig: ToolSelectionConfig
-  createdAt: number
+  createdAt: Date
+  updatedAt: Date
 }
 
 const VALID_TOOLS_MODES = new Set<McpToolsMode>(['all', 'pick', 'semantic', 'agentic'])
@@ -134,8 +135,15 @@ function normalizeToolSelectionConfig(raw: unknown): ToolSelectionConfig {
   }
 }
 
+function coerceDate(val: unknown): Date {
+  if (val instanceof Date) return val
+  if (typeof val === 'number') return new Date(val)
+  if (typeof val === 'string') { const d = new Date(val); if (!isNaN(d.getTime())) return d }
+  return new Date()
+}
+
 function normalizeChatMeta(entry: unknown): ChatMeta {
-  const c = entry as Partial<ChatMeta>
+  const c = entry as Partial<ChatMeta> & Record<string, unknown>
   const enabledTools = Array.isArray(c.enabledTools) ? c.enabledTools : []
   const mcpToolsMode: McpToolsMode =
     typeof c.mcpToolsMode === 'string' && VALID_TOOLS_MODES.has(c.mcpToolsMode as McpToolsMode)
@@ -152,8 +160,9 @@ function normalizeChatMeta(entry: unknown): ChatMeta {
     modelId: String(c.modelId ?? ''),
     systemPrompt: typeof c.systemPrompt === 'string' ? c.systemPrompt : '',
     agenticSystemPrompt: typeof c.agenticSystemPrompt === 'string' ? c.agenticSystemPrompt : '',
-    toolSelectionConfig: normalizeToolSelectionConfig((c as Record<string, unknown>).toolSelectionConfig),
-    createdAt: typeof c.createdAt === 'number' ? c.createdAt : Date.now()
+    toolSelectionConfig: normalizeToolSelectionConfig(c.toolSelectionConfig),
+    createdAt: coerceDate(c.createdAt),
+    updatedAt: coerceDate(c.updatedAt)
   }
 }
 

@@ -5,10 +5,21 @@ import { logUiError } from '@/lib/rendererLog'
 
 const VALID_TOOLS_MODES = new Set<McpToolsMode>(['all', 'pick', 'semantic', 'agentic'])
 
+function coerceDate(val: unknown): Date {
+  if (val instanceof Date) return val
+  if (typeof val === 'number') return new Date(val)
+  if (typeof val === 'string') { const d = new Date(val); if (!isNaN(d.getTime())) return d }
+  return new Date()
+}
+
 function parseLoadedChat(raw: Record<string, unknown>): Chat | null {
   const id = String(raw.id ?? '')
   if (!id) return null
-  const messages = Array.isArray(raw.messages) ? (raw.messages as Message[]) : []
+  const rawMessages = Array.isArray(raw.messages) ? raw.messages : []
+  const messages: Message[] = rawMessages.map((m: Record<string, unknown>) => ({
+    ...(m as unknown as Message),
+    timestamp: coerceDate(m.timestamp)
+  }))
   const enabledTools = Array.isArray(raw.enabledTools) ? raw.enabledTools.map(String) : []
   const rawMode = String(raw.mcpToolsMode ?? 'all')
   const mode: McpToolsMode = VALID_TOOLS_MODES.has(rawMode as McpToolsMode)
@@ -27,7 +38,8 @@ function parseLoadedChat(raw: Record<string, unknown>): Chat | null {
     toolSelectionConfig: raw.toolSelectionConfig && typeof raw.toolSelectionConfig === 'object'
       ? { ...DEFAULT_TOOL_SELECTION_CONFIG, ...(raw.toolSelectionConfig as Record<string, unknown>) } as Chat['toolSelectionConfig']
       : { ...DEFAULT_TOOL_SELECTION_CONFIG },
-    createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : Date.now()
+    createdAt: coerceDate(raw.createdAt),
+    updatedAt: coerceDate(raw.updatedAt)
   }
 }
 
