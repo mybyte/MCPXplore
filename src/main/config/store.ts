@@ -12,6 +12,7 @@ export interface AppConfig {
   llmProviders: LlmProviderConfig[]
   embeddingsProviders: EmbeddingsProviderConfig[]
   mcpServers: McpServerConfig[]
+  toolEmbeddings: ToolEmbeddingConfig[]
   chats: ChatMeta[]
   mongo: MongoSettings
   /** Server IDs that were connected when the app last ran — auto-reconnected on launch. */
@@ -36,6 +37,19 @@ export interface EmbeddingsProviderConfig {
   apiKey: string
   models: string[]
   apiVersion?: string
+}
+
+export interface ToolEmbeddingConfig {
+  id: string
+  providerId: string
+  model: string
+  dimensions: number
+  /** Derived: model with special chars replaced by underscores, plus dimensions. */
+  fieldName: string
+}
+
+export function toEmbeddingFieldName(model: string, dimensions: number): string {
+  return `${model.replace(/[^a-zA-Z0-9]/g, '_')}_${dimensions}`
 }
 
 export interface McpServerConfig {
@@ -144,6 +158,7 @@ const DEFAULT_CONFIG: AppConfig = {
   llmProviders: [],
   embeddingsProviders: [],
   mcpServers: [],
+  toolEmbeddings: [],
   chats: [],
   mongo: { connectionUri: '', chatDatabase: '' },
   connectedServerIds: []
@@ -172,6 +187,9 @@ class ConfigStore {
         parsed.mongo = {
           connectionUri: typeof m?.connectionUri === 'string' ? m.connectionUri : '',
           chatDatabase: typeof m?.chatDatabase === 'string' ? m.chatDatabase : ''
+        }
+        if (!Array.isArray(parsed.toolEmbeddings)) {
+          parsed.toolEmbeddings = []
         }
         if (!Array.isArray(parsed.connectedServerIds)) {
           parsed.connectedServerIds = []

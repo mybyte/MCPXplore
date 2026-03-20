@@ -7,6 +7,7 @@ export function useConfigSync() {
   const setLlmProviders = useSettingsStore((s) => s.setLlmProviders)
   const setEmbeddingsProviders = useSettingsStore((s) => s.setEmbeddingsProviders)
   const setMcpServerConfigs = useSettingsStore((s) => s.setMcpServers)
+  const setToolEmbeddings = useSettingsStore((s) => s.setToolEmbeddings)
   const setMongo = useSettingsStore((s) => s.setMongo)
   const setMcpServers = useMcpStore((s) => s.setServers)
 
@@ -20,6 +21,7 @@ export function useConfigSync() {
           if (Array.isArray(c.embeddingsProviders))
             setEmbeddingsProviders(c.embeddingsProviders as never[])
           if (Array.isArray(c.mcpServers)) setMcpServerConfigs(c.mcpServers as never[])
+          if (Array.isArray(c.toolEmbeddings)) setToolEmbeddings(c.toolEmbeddings as never[])
           const m = c.mongo as { connectionUri?: unknown; chatDatabase?: unknown } | undefined
           if (m && typeof m === 'object') {
             setMongo({
@@ -52,5 +54,5 @@ export function useConfigSync() {
     return () => {
       cleanup()
     }
-  }, [setLlmProviders, setEmbeddingsProviders, setMcpServerConfigs, setMongo, setMcpServers])
+  }, [setLlmProviders, setEmbeddingsProviders, setMcpServerConfigs, setToolEmbeddings, setMongo, setMcpServers])
 }

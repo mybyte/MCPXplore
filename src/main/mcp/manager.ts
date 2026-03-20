@@ -11,8 +11,12 @@ import type {
   McpResourceInfo,
   McpResourceTemplateInfo,
   McpPromptInfo,
-  McpServerStatus
+  McpServerStatus,
+  CapabilityFingerprints,
+  CapabilityChanges
 } from './types'
+import { fingerprintCapabilities } from './fingerprint'
+import { diffCapabilities, hasChanges } from './change-detection'
 
 /** Cursor-style configs often omit `transport`; infer like other MCP clients. */
 function normalizeMcpConfig(config: McpServerConfig): McpServerConfig {
@@ -63,20 +67,52 @@ interface ManagedServer {
   client: Client
   transport: StdioClientTransport | StreamableHTTPClientTransport | SSEClientTransport
   status: McpServerStatus
+  fingerprints?: CapabilityFingerprints
   refreshTimer?: ReturnType<typeof setInterval>
 }
 
 class McpManager {
   private servers = new Map<string, ManagedServer>()
   private statusCallback?: (statuses: McpServerStatus[]) => void
+  private changeCallbacks: Array<(change: CapabilityChanges) => void> = []
   private refreshInProgress = new Set<string>()
 
   onStatusChange(callback: (statuses: McpServerStatus[]) => void) {
     this.statusCallback = callback
   }
 
+  onCapabilityChange(callback: (change: CapabilityChanges) => void): void {
+    this.changeCallbacks.push(callback)
+  }
+
   private notifyStatus() {
     this.statusCallback?.(this.getAllStatuses())
+  }
+
+  private notifyCapabilityChange(change: CapabilityChanges): void {
+    for (const cb of this.changeCallbacks) cb(change)
+  }
+
+  /**
+   * Compute fingerprints for the server's current capabilities, compare with
+   * the previous fingerprints, and fire change callbacks if anything differs.
+   * Returns `true` when a change was detected.
+   */
+  private applyFingerprints(server: ManagedServer): boolean {
+    const prev = server.fingerprints ?? null
+    const curr = fingerprintCapabilities(server.status)
+
+    if (prev && prev.server === curr.server) return false
+
+    const changes = diffCapabilities(server.config.id, server.config.name, prev, curr)
+    server.fingerprints = curr
+    server.status.fingerprints = curr
+
+    if (hasChanges(changes)) {
+      this.notifyCapabilityChange(changes)
+    }
+
+    return true
   }
 
   getAllStatuses(): McpServerStatus[] {
@@ -124,6 +160,9 @@ class McpManager {
       status.resourceTemplates = resourceTemplates
       status.prompts = prompts
 
+      const managed = this.servers.get(config.id)!
+      this.applyFingerprints(managed)
+
       this.startRefreshTimer(config.id)
       this.notifyStatus()
 
@@ -152,6 +191,8 @@ class McpManager {
     server.status.resources = []
     server.status.resourceTemplates = []
     server.status.prompts = []
+    server.status.fingerprints = undefined
+    server.fingerprints = undefined
     this.servers.delete(serverId)
     this.notifyStatus()
   }
@@ -212,7 +253,11 @@ class McpManager {
         server.status.resources = resources
         server.status.resourceTemplates = resourceTemplates
         server.status.prompts = prompts
-        this.notifyStatus()
+
+        const changed = this.applyFingerprints(server)
+        if (changed) {
+          this.notifyStatus()
+        }
       }
 
       const maxAttempts = 2

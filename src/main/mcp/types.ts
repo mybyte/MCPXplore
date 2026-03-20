@@ -44,4 +44,37 @@ export interface McpServerStatus {
   resources: McpResourceInfo[]
   resourceTemplates: McpResourceTemplateInfo[]
   prompts: McpPromptInfo[]
+  fingerprints?: CapabilityFingerprints
+}
+
+// ── Fingerprinting & change detection ────────────────────────────────
+
+export interface CapabilityFingerprints {
+  /** Aggregate hash of all individual capability fingerprints. */
+  server: string
+  /** tool name -> content hash */
+  tools: Record<string, string>
+  /** resource URI -> content hash */
+  resources: Record<string, string>
+  /** resource-template URI template -> content hash */
+  resourceTemplates: Record<string, string>
+  /** prompt name -> content hash */
+  prompts: Record<string, string>
+}
+
+export interface ItemChanges {
+  added: string[]
+  removed: string[]
+  modified: string[]
+}
+
+export interface CapabilityChanges {
+  serverId: string
+  serverName: string
+  previousFingerprint: string | null
+  currentFingerprint: string
+  tools: ItemChanges
+  resources: ItemChanges
+  resourceTemplates: ItemChanges
+  prompts: ItemChanges
 }

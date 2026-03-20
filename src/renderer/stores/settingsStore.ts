@@ -32,6 +32,14 @@ export interface McpServerConfig {
   refreshInterval?: number
 }
 
+export interface ToolEmbeddingConfig {
+  id: string
+  providerId: string
+  model: string
+  dimensions: number
+  fieldName: string
+}
+
 export interface MongoSettings {
   connectionUri: string
   chatDatabase: string
@@ -41,6 +49,7 @@ interface SettingsState {
   llmProviders: LlmProvider[]
   embeddingsProviders: EmbeddingsProvider[]
   mcpServers: McpServerConfig[]
+  toolEmbeddings: ToolEmbeddingConfig[]
   mongo: MongoSettings
   setLlmProviders: (providers: LlmProvider[]) => void
   addLlmProvider: (provider: LlmProvider) => void
@@ -54,6 +63,7 @@ interface SettingsState {
   addMcpServer: (server: McpServerConfig) => void
   updateMcpServer: (id: string, patch: Partial<McpServerConfig>) => void
   removeMcpServer: (id: string) => void
+  setToolEmbeddings: (configs: ToolEmbeddingConfig[]) => void
   setMongo: (mongo: MongoSettings) => void
 }
 
@@ -61,6 +71,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   llmProviders: [],
   embeddingsProviders: [],
   mcpServers: [],
+  toolEmbeddings: [],
   mongo: { connectionUri: '', chatDatabase: '' },
 
   setLlmProviders: (providers) => set({ llmProviders: providers }),
@@ -94,6 +105,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     })),
   removeMcpServer: (id) =>
     set((s) => ({ mcpServers: s.mcpServers.filter((srv) => srv.id !== id) })),
+
+  setToolEmbeddings: (configs) => set({ toolEmbeddings: configs }),
 
   setMongo: (mongo) => set({ mongo })
 }))

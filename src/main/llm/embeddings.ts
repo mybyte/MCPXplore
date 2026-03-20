@@ -2,16 +2,30 @@ import { getConfigStore, type EmbeddingsProviderConfig } from '../config/store'
 import { createClient } from './providers'
 import { formatApiError } from './format-error'
 
+const VOYAGE_TYPES = new Set(['voyage', 'voyage-mongo'])
+
+/**
+ * Build the dimensions body fragment. Voyage uses `output_dimension`;
+ * OpenAI-compatible providers use `dimensions`.
+ */
+function dimensionsBody(
+  provider: EmbeddingsProviderConfig,
+  dimensions?: number
+): Record<string, unknown> {
+  if (dimensions == null || dimensions <= 0) return {}
+  if (VOYAGE_TYPES.has(provider.type)) return { output_dimension: dimensions }
+  return { dimensions }
+}
+
 async function embedSingleText(
   provider: EmbeddingsProviderConfig,
   modelId: string,
-  text: string
+  text: string,
+  dimensions?: number
 ): Promise<{ embedding: number[]; usage?: { totalTokens: number } }> {
   const client = createClient(provider)
-  const response = await client.embeddings.create({
-    model: modelId,
-    input: text
-  })
+  const body = { model: modelId, input: text, ...dimensionsBody(provider, dimensions) }
+  const response = await client.embeddings.create(body as Parameters<typeof client.embeddings.create>[0])
 
   const embedding = response.data[0]?.embedding ?? []
   const totalTokens = response.usage?.total_tokens ?? 0
@@ -21,20 +35,22 @@ async function embedSingleText(
 export async function generateEmbedding(
   providerId: string,
   modelId: string,
-  text: string
+  text: string,
+  dimensions?: number
 ): Promise<{ embedding: number[]; usage?: { totalTokens: number } }> {
   const store = getConfigStore()
   const providers = store.get('embeddingsProviders')
   const provider = providers.find((p) => p.id === providerId)
   if (!provider) throw new Error(`Embeddings provider not found: ${providerId}`)
 
-  return embedSingleText(provider, modelId, text)
+  return embedSingleText(provider, modelId, text, dimensions)
 }
 
 export async function generateEmbeddings(
   providerId: string,
   modelId: string,
-  texts: string[]
+  texts: string[],
+  dimensions?: number
 ): Promise<{ embeddings: number[][]; usage?: { totalTokens: number } }> {
   const store = getConfigStore()
   const providers = store.get('embeddingsProviders')
@@ -42,10 +58,8 @@ export async function generateEmbeddings(
   if (!provider) throw new Error(`Embeddings provider not found: ${providerId}`)
 
   const client = createClient(provider)
-  const response = await client.embeddings.create({
-    model: modelId,
-    input: texts
-  })
+  const body = { model: modelId, input: texts, ...dimensionsBody(provider, dimensions) }
+  const response = await client.embeddings.create(body as Parameters<typeof client.embeddings.create>[0])
 
   const embeddings = response.data
     .sort((a, b) => a.index - b.index)

@@ -15,6 +15,10 @@ const api = {
   setEmbeddingsProviders: (providers: unknown[]) =>
     ipcRenderer.invoke('config:embeddingsProviders:set', providers),
   setMcpServers: (servers: unknown[]) => ipcRenderer.invoke('config:mcpServers:set', servers),
+  setToolEmbeddings: (configs: unknown[]) =>
+    ipcRenderer.invoke('config:toolEmbeddings:set', configs),
+  getBackfillStatuses: () =>
+    ipcRenderer.invoke('toolEmbeddings:getBackfillStatuses') as Promise<unknown[]>,
   setChats: (chats: unknown[]) => ipcRenderer.invoke('config:chats:set', chats),
   setMongo: (mongo: { connectionUri: string; chatDatabase: string }) =>
     ipcRenderer.invoke('config:mongo:set', mongo),
@@ -73,6 +77,18 @@ const api = {
     const handler = (_: unknown, event: unknown) => callback(event)
     ipcRenderer.on('mcp:status', handler)
     return () => ipcRenderer.removeListener('mcp:status', handler)
+  },
+
+  onBackfillStatus: (callback: (event: unknown) => void) => {
+    const handler = (_: unknown, event: unknown) => callback(event)
+    ipcRenderer.on('toolEmbeddings:backfillStatus', handler)
+    return () => ipcRenderer.removeListener('toolEmbeddings:backfillStatus', handler)
+  },
+
+  onMcpCapabilityChange: (callback: (event: unknown) => void) => {
+    const handler = (_: unknown, event: unknown) => callback(event)
+    ipcRenderer.on('mcp:capabilityChange', handler)
+    return () => ipcRenderer.removeListener('mcp:capabilityChange', handler)
   },
 
   /** Structured logs from the renderer; main prints them so devs see UI issues in the terminal. */

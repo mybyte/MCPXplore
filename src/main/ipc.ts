@@ -1,6 +1,6 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import { getConfigStore, REDACTED } from './config/store'
-import type { MongoSettings, SecretsScope, LlmProviderConfig, EmbeddingsProviderConfig, McpServerConfig } from './config/store'
+import type { MongoSettings, SecretsScope, LlmProviderConfig, EmbeddingsProviderConfig, McpServerConfig, ToolEmbeddingConfig } from './config/store'
 import { getMcpManager } from './mcp/manager'
 import { handleChatSend, stopChat, testLlmConnection } from './llm/chat'
 import { testEmbeddingsConnection } from './llm/embeddings'
@@ -12,6 +12,14 @@ import {
   mongoSyncChats,
   mongoTestConnection
 } from './mongo/service'
+import { syncMcpServerTools } from './mongo/mcp-sync'
+import {
+  backfillToolEmbeddings,
+  removeToolEmbeddingField,
+  updateToolEmbeddingsForServer,
+  getAllBackfillStatuses,
+  onBackfillStatus
+} from './mongo/tool-embeddings'
 
 const LOG_LEVELS = new Set(['error', 'warn', 'info', 'debug'])
 
@@ -51,6 +59,47 @@ export function registerIpcHandlers(): void {
     for (const win of BrowserWindow.getAllWindows()) {
       win.webContents.send('mcp:status', statuses)
     }
+  })
+
+  // Broadcast capability change events (fingerprint diffs) to all renderer windows
+  mcpManager.onCapabilityChange((change) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      win.webContents.send('mcp:capabilityChange', change)
+    }
+  })
+
+  // Sync MCP tools to MongoDB when a server's capabilities change
+  mcpManager.onCapabilityChange((change) => {
+    const status = mcpManager
+      .getAllStatuses()
+      .find((s) => s.id === change.serverId)
+    if (!status || status.status !== 'connected') return
+
+    void syncMcpServerTools(
+      change.serverId,
+      change.serverName,
+      status.tools,
+      status.fingerprints
+    )
+  })
+
+  // Broadcast backfill status changes to all renderer windows
+  onBackfillStatus((statuses) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      win.webContents.send('toolEmbeddings:backfillStatus', statuses)
+    }
+  })
+
+  // Compute and store tool embeddings when a server's capabilities change.
+  // Runs after the tool sync callback writes documents to MongoDB.
+  mcpManager.onCapabilityChange((change) => {
+    const status = mcpManager
+      .getAllStatuses()
+      .find((s) => s.id === change.serverId)
+    if (!status || status.status !== 'connected') return
+    if (status.tools.length === 0) return
+
+    void updateToolEmbeddingsForServer(change.serverId, status.tools)
   })
 
   ipcMain.handle('renderer:log', (_event, entry: unknown) => {
@@ -105,6 +154,28 @@ export function registerIpcHandlers(): void {
     })
     store.set('mcpServers', merged)
     mcpManager.applySavedServerConfigs(merged)
+  })
+
+  ipcMain.handle('toolEmbeddings:getBackfillStatuses', () => getAllBackfillStatuses())
+
+  ipcMain.handle('config:toolEmbeddings:set', (_event, configs: ToolEmbeddingConfig[]) => {
+    const oldConfigs = store.get('toolEmbeddings')
+    store.set('toolEmbeddings', configs)
+
+    const oldFieldNames = new Set(oldConfigs.map((c) => c.fieldName))
+    const newFieldNames = new Set(configs.map((c) => c.fieldName))
+
+    for (const old of oldConfigs) {
+      if (!newFieldNames.has(old.fieldName)) {
+        void removeToolEmbeddingField(old.fieldName)
+      }
+    }
+
+    for (const cfg of configs) {
+      if (!oldFieldNames.has(cfg.fieldName)) {
+        void backfillToolEmbeddings(cfg)
+      }
+    }
   })
 
   ipcMain.handle('config:chats:set', (_event, chats) => {
