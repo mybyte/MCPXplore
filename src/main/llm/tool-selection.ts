@@ -1,6 +1,6 @@
 import type { ToolSelectionConfig } from '../config/store'
 import { getConfigStore } from '../config/store'
-import { createClient } from './providers'
+import { createClient, maxTokensParam } from './providers'
 import { searchTools, type ToolSearchResult } from '../mongo/tool-search'
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -190,7 +190,7 @@ async function resolveAgentic(input: ToolSelectionInput): Promise<ToolSelectionR
       ],
       tools: [SEARCH_TOOLS_FUNCTION],
       tool_choice: { type: 'function', function: { name: 'search_tools' } },
-      max_tokens: 512
+      ...maxTokensParam(provider, 512)
     },
     { signal }
   )

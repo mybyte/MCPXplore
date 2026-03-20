@@ -1,7 +1,7 @@
 import { BrowserWindow } from 'electron'
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 import { getConfigStore, type LlmProviderConfig, type ToolSelectionConfig, DEFAULT_TOOL_SELECTION_CONFIG } from '../config/store'
-import { createClient, chatRequestDefaults } from './providers'
+import { createClient, chatRequestDefaults, maxTokensParam } from './providers'
 import {
   buildChatCompletionTools,
   type McpToolsSelection,
@@ -375,7 +375,7 @@ export async function testLlmConnection(payload: LlmTestPayload): Promise<LlmTes
     const client = createClient(provider)
     const completion = await client.chat.completions.create({
       model: modelId.trim(),
-      max_tokens: 32,
+      ...maxTokensParam(provider, 32),
       messages: [{ role: 'user', content: TEST_USER_MESSAGE }]
     })
 

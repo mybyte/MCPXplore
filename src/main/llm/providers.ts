@@ -66,3 +66,17 @@ export function chatRequestDefaults(
 
   return base
 }
+
+/**
+ * Azure OpenAI newer models require `max_completion_tokens` instead of
+ * `max_tokens`. Other providers (Fireworks, OpenRouter, etc.) still use
+ * the original parameter name.
+ */
+export function maxTokensParam(
+  config: LlmProviderConfig,
+  n: number
+): Record<string, unknown> {
+  return config.type === 'azure'
+    ? { max_completion_tokens: n }
+    : { max_tokens: n }
+}

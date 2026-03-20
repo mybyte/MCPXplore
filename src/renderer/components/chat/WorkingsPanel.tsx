@@ -199,7 +199,7 @@ function WorkingsReplyTab({ data }: { data: WorkingsData }) {
 
         {data.toolSearchTrace && <ToolSearchSection trace={data.toolSearchTrace} />}
 
-        {data.reasoning && <ReasoningSection text={data.reasoning} />}
+        {data.reasoning && <ReasoningSection text={data.reasoning} durationMs={data.durations?.reasoningMs} />}
 
         {data.toolCalls.map((tc) => (
           <ToolCallSection key={tc.id} toolCall={tc} />
@@ -335,7 +335,7 @@ function TraceField({ label, children }: { label: string; children: React.ReactN
 
 // ── Existing sections (unchanged) ─────────────────────────────────────
 
-function ReasoningSection({ text }: { text: string }) {
+function ReasoningSection({ text, durationMs }: { text: string; durationMs?: number }) {
   const [expanded, setExpanded] = useState(true)
 
   return (
@@ -351,7 +351,10 @@ function ReasoningSection({ text }: { text: string }) {
           <ChevronRight className="size-3 text-muted-foreground" />
         )}
         <Brain className="size-3 text-purple-500" />
-        <span className="text-xs font-medium">Reasoning</span>
+        <span className="flex-1 text-xs font-medium">Reasoning</span>
+        {durationMs !== undefined && (
+          <span className="text-[10px] text-muted-foreground">{fmtMs(durationMs)}</span>
+        )}
       </button>
       {expanded && (
         <div className="border-t border-border px-2.5 py-2">
@@ -450,41 +453,94 @@ function fmtMs(ms: number): string {
   return `${(ms / 1000).toFixed(2)}s`
 }
 
+interface TimelineStep {
+  label: string
+  ms: number
+  color: string
+}
+
+const STEP_COLORS: Record<string, string> = {
+  'Tool selection': 'bg-indigo-500',
+  Reasoning: 'bg-purple-500',
+  'Text generation': 'bg-sky-500',
+  'Tool calls': 'bg-blue-500'
+}
+
 function DurationsSection({ durations }: { durations: MessageDurations }) {
-  const items: Array<{ label: string; value: string; accent?: string }> = []
+  const [expanded, setExpanded] = useState(true)
 
-  items.push({ label: 'End-to-end', value: fmtMs(durations.totalMs), accent: 'text-foreground font-semibold' })
-
-  if (durations.firstTokenMs !== undefined) {
-    items.push({ label: 'Time to first token', value: fmtMs(durations.firstTokenMs) })
-  }
+  const steps: TimelineStep[] = []
   if (durations.toolSelectionMs !== undefined) {
-    items.push({ label: 'Tool selection', value: fmtMs(durations.toolSelectionMs) })
+    steps.push({ label: 'Tool selection', ms: durations.toolSelectionMs, color: STEP_COLORS['Tool selection'] })
   }
   if (durations.reasoningMs !== undefined) {
-    items.push({ label: 'Reasoning', value: fmtMs(durations.reasoningMs) })
+    steps.push({ label: 'Reasoning', ms: durations.reasoningMs, color: STEP_COLORS['Reasoning'] })
   }
   if (durations.generationMs !== undefined) {
-    items.push({ label: 'Text generation', value: fmtMs(durations.generationMs) })
+    steps.push({ label: 'Text generation', ms: durations.generationMs, color: STEP_COLORS['Text generation'] })
   }
   if (durations.toolCallsMs > 0) {
-    items.push({ label: 'Tool calls', value: fmtMs(durations.toolCallsMs) })
+    steps.push({ label: 'Tool calls', ms: durations.toolCallsMs, color: STEP_COLORS['Tool calls'] })
   }
 
+  const maxMs = Math.max(...steps.map((s) => s.ms), 1)
+
   return (
-    <div className="rounded-md border border-border px-2.5 py-2">
-      <div className="mb-1.5 flex items-center gap-2">
+    <div className="rounded-md border border-border">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center gap-2 px-2.5 py-2 text-left"
+      >
+        {expanded ? (
+          <ChevronDown className="size-3 text-muted-foreground" />
+        ) : (
+          <ChevronRight className="size-3 text-muted-foreground" />
+        )}
         <Timer className="size-3 text-amber-500" />
-        <span className="text-xs font-medium">Durations</span>
-      </div>
-      <div className="space-y-1">
-        {items.map((item) => (
-          <div key={item.label} className="flex items-center justify-between gap-2">
-            <span className="text-[10px] text-muted-foreground">{item.label}</span>
-            <span className={cn('text-[11px] font-mono tabular-nums', item.accent ?? 'text-foreground')}>{item.value}</span>
-          </div>
-        ))}
-      </div>
+        <span className="flex-1 text-xs font-medium">Timeline</span>
+        <span className="text-[10px] font-mono tabular-nums text-muted-foreground">
+          {fmtMs(durations.totalMs)}
+        </span>
+      </button>
+      {expanded && (
+        <div className="border-t border-border px-2.5 py-2.5">
+          {durations.firstTokenMs !== undefined && (
+            <div className="mb-2.5 flex items-center justify-between text-[10px] text-muted-foreground">
+              <span>Time to first token</span>
+              <span className="font-mono tabular-nums">{fmtMs(durations.firstTokenMs)}</span>
+            </div>
+          )}
+
+          {steps.length > 0 && (
+            <div className="relative ml-[3px]">
+              <div className="absolute left-0 top-[5px] bottom-[5px] w-px bg-border" />
+              <div className="space-y-2.5">
+                {steps.map((step) => {
+                  const widthPct = Math.max((step.ms / maxMs) * 100, 6)
+                  return (
+                    <div key={step.label} className="relative pl-4">
+                      <div className={cn('absolute left-[-2.5px] top-[5px] size-[6px] rounded-full', step.color)} />
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className="text-[10px] text-muted-foreground">{step.label}</span>
+                        <span className="text-[10px] font-mono tabular-nums text-foreground">
+                          {fmtMs(step.ms)}
+                        </span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                        <div
+                          className={cn('h-full rounded-full', step.color)}
+                          style={{ width: `${widthPct}%`, opacity: 0.7 }}
+                        />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
