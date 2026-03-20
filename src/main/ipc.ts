@@ -1,8 +1,39 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import { getConfigStore } from './config/store'
 import { getMcpManager } from './mcp/manager'
-import { handleChatSend, stopChat } from './llm/chat'
+import { handleChatSend, stopChat, testLlmConnection } from './llm/chat'
+import { testEmbeddingsConnection } from './llm/embeddings'
+import { formatAiSdkApiError } from './llm/format-ai-sdk-error'
 import type { AppConfig } from './config/store'
+
+const LOG_LEVELS = new Set(['error', 'warn', 'info', 'debug'])
+
+function logRendererEntry(raw: unknown): void {
+  if (!raw || typeof raw !== 'object') return
+  const e = raw as Record<string, unknown>
+  const level = e['level']
+  const source = e['source']
+  const message = e['message']
+  if (typeof level !== 'string' || !LOG_LEVELS.has(level)) return
+  if (typeof source !== 'string' || typeof message !== 'string') return
+  const detail = typeof e['detail'] === 'string' ? e['detail'] : undefined
+  const stack = typeof e['stack'] === 'string' ? e['stack'] : undefined
+  const prefix = `[renderer:${source}]`
+  const body = [message, detail, stack].filter(Boolean).join('\n')
+  switch (level) {
+    case 'error':
+      console.error(prefix, '\n' + body)
+      break
+    case 'warn':
+      console.warn(prefix, '\n' + body)
+      break
+    case 'info':
+      console.info(prefix, '\n' + body)
+      break
+    default:
+      console.debug(prefix, '\n' + body)
+  }
+}
 
 export function registerIpcHandlers(): void {
   const store = getConfigStore()
@@ -13,6 +44,10 @@ export function registerIpcHandlers(): void {
     for (const win of BrowserWindow.getAllWindows()) {
       win.webContents.send('mcp:status', statuses)
     }
+  })
+
+  ipcMain.handle('renderer:log', (_event, entry: unknown) => {
+    logRendererEntry(entry)
   })
 
   // ── Config ─────────────────────────────────────────────────────────
@@ -87,10 +122,31 @@ export function registerIpcHandlers(): void {
   // ── LLM Chat ───────────────────────────────────────────────────────
 
   ipcMain.handle('llm:send', async (_event, chatId: string, message: string, options: Record<string, unknown>) => {
-    await handleChatSend(chatId, message, options as never)
+    try {
+      await handleChatSend(chatId, message, options as never)
+    } catch (err) {
+      console.error(`[llm:send] chatId=${chatId}\n${formatAiSdkApiError(err)}`)
+      throw err
+    }
   })
 
   ipcMain.handle('llm:stop', (_event, chatId: string) => {
     stopChat(chatId)
+  })
+
+  ipcMain.handle('llm:testConnection', async (_event, payload: unknown) => {
+    const result = await testLlmConnection(payload as never)
+    if (!result.ok) {
+      console.error(`[llm:testConnection]\n${result.error}`)
+    }
+    return result
+  })
+
+  ipcMain.handle('embeddings:testConnection', async (_event, payload: unknown) => {
+    const result = await testEmbeddingsConnection(payload as never)
+    if (!result.ok) {
+      console.error(`[embeddings:testConnection]\n${result.error}`)
+    }
+    return result
   })
 }

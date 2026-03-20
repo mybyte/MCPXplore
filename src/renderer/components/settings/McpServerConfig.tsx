@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useSettingsStore, type McpServerConfig as McpServerConfigType } from '@/stores/settingsStore'
+import { argsToLine, parseArgsLine } from '@/lib/parseArgsLine'
 import { Plus, Pencil, Trash2, X, Check } from 'lucide-react'
 
 const TRANSPORT_TYPES = [
@@ -28,7 +29,7 @@ function ServerForm({
       env: {}
     }
   )
-  const [argsText, setArgsText] = useState((form.args ?? []).join(' '))
+  const [argsText, setArgsText] = useState(argsToLine(form.args ?? []))
   const [envText, setEnvText] = useState(
     Object.entries(form.env ?? {})
       .map(([k, v]) => `${k}=${v}`)
@@ -38,10 +39,7 @@ function ServerForm({
   const update = (patch: Partial<McpServerConfigType>) => setForm({ ...form, ...patch })
 
   const handleSave = () => {
-    const args = argsText
-      .split(/\s+/)
-      .map((a) => a.trim())
-      .filter(Boolean)
+    const args = parseArgsLine(argsText.trim())
     const env: Record<string, string> = {}
     envText
       .split('\n')
@@ -165,21 +163,22 @@ export function McpServerConfig() {
   const [editingId, setEditingId] = useState<string | null>(null)
 
   const handleSave = (server: McpServerConfigType) => {
+    const current = useSettingsStore.getState().mcpServers
     if (editingId) {
       updateServer(editingId, server)
+      void window.api.setMcpServers(current.map((s) => (s.id === editingId ? server : s)))
       setEditingId(null)
     } else {
       addServer(server)
+      void window.api.setMcpServers([...current, server])
       setShowForm(false)
     }
-    window.api.setMcpServers(
-      editingId ? servers.map((s) => (s.id === editingId ? server : s)) : [...servers, server]
-    )
   }
 
   const handleDelete = (id: string) => {
+    const current = useSettingsStore.getState().mcpServers
     removeServer(id)
-    window.api.setMcpServers(servers.filter((s) => s.id !== id))
+    void window.api.setMcpServers(current.filter((s) => s.id !== id))
   }
 
   return (

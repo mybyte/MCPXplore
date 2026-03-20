@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useMcpStore, type McpServer } from '@/stores/mcpStore'
+import { logUiError } from '@/lib/rendererLog'
 
 export function useConfigSync() {
   const setLlmProviders = useSettingsStore((s) => s.setLlmProviders)
@@ -26,7 +27,7 @@ export function useConfigSync() {
           setMcpServers(statuses as McpServer[])
         }
       } catch (err) {
-        console.error('Failed to load config:', err)
+        logUiError('useConfigSync.loadConfig', err)
       }
     }
     loadConfig()

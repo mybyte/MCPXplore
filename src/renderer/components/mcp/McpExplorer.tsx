@@ -15,6 +15,7 @@ import {
   Loader2
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { logUiError } from '@/lib/rendererLog'
 
 export function McpExplorer() {
   const servers = useMcpStore((s) => s.servers)
@@ -42,7 +43,7 @@ export function McpExplorer() {
     try {
       await window.api.mcpConnect(id)
     } catch (err) {
-      console.error('Failed to connect:', err)
+      logUiError('McpExplorer.connect', err, { serverId: id })
     } finally {
       setConnectingIds((s) => {
         const next = new Set(s)
@@ -56,7 +57,7 @@ export function McpExplorer() {
     try {
       await window.api.mcpDisconnect(id)
     } catch (err) {
-      console.error('Failed to disconnect:', err)
+      logUiError('McpExplorer.disconnect', err, { serverId: id })
     }
   }
 
@@ -239,6 +240,7 @@ function ToolsList({ tools, serverId }: { tools: McpTool[]; serverId: string }) 
       const res = await window.api.mcpCallTool(serverId, selectedTool, args)
       setResult(JSON.stringify(res, null, 2))
     } catch (err) {
+      logUiError('McpExplorer.mcpCallTool', err, { serverId, tool: selectedTool })
       setResult(`Error: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setRunning(false)
@@ -333,6 +335,7 @@ function ResourcesList({
       const res = await window.api.mcpReadResource(serverId, uri)
       setContent(JSON.stringify(res, null, 2))
     } catch (err) {
+      logUiError('McpExplorer.mcpReadResource', err, { serverId, uri })
       setContent(`Error: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setLoading(false)

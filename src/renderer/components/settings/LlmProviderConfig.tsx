@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useSettingsStore, type LlmProvider } from '@/stores/settingsStore'
-import { Plus, Pencil, Trash2, X, Check } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, Check, Loader2, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const PROVIDER_TYPES = [
@@ -35,6 +35,8 @@ function ProviderForm({
     }
   )
   const [modelsText, setModelsText] = useState(form.models.join(', '))
+  const [formTestBusy, setFormTestBusy] = useState(false)
+  const [formTestMessage, setFormTestMessage] = useState<string | null>(null)
 
   const update = (patch: Partial<LlmProvider>) => {
     const next = { ...form, ...patch }
@@ -50,6 +52,42 @@ function ProviderForm({
       .map((m) => m.trim())
       .filter(Boolean)
     onSave({ ...form, models })
+  }
+
+  const parsedModels = modelsText
+    .split(',')
+    .map((m) => m.trim())
+    .filter(Boolean)
+
+  const runFormTest = async () => {
+    setFormTestMessage(null)
+    if (!form.baseUrl.trim()) {
+      setFormTestMessage('Set a base URL before testing.')
+      return
+    }
+    if (parsedModels.length === 0) {
+      setFormTestMessage('Add at least one model ID (comma-separated) to run a test.')
+      return
+    }
+    setFormTestBusy(true)
+    try {
+      const provider: LlmProvider = { ...form, models: parsedModels }
+      const result = await window.api.llmTestConnection({
+        provider,
+        modelId: parsedModels[0]
+      })
+      if (result.ok) {
+        setFormTestMessage(
+          `OK — model "${result.modelId}" replied: ${result.replySnippet}`
+        )
+      } else {
+        setFormTestMessage(result.error)
+      }
+    } catch (e) {
+      setFormTestMessage(e instanceof Error ? e.message : String(e))
+    } finally {
+      setFormTestBusy(false)
+    }
   }
 
   return (
@@ -122,14 +160,42 @@ function ProviderForm({
         />
       </label>
 
-      <div className="flex justify-end gap-2 pt-1">
+      {formTestMessage && (
+        <p
+          className={cn(
+            'text-xs rounded-md border px-2 py-1.5',
+            formTestMessage.startsWith('OK —')
+              ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400'
+              : 'border-destructive/30 bg-destructive/5 text-destructive'
+          )}
+        >
+          {formTestMessage}
+        </p>
+      )}
+
+      <div className="flex flex-wrap justify-end gap-2 pt-1">
         <button
+          type="button"
+          onClick={runFormTest}
+          disabled={formTestBusy}
+          className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-sm hover:bg-accent transition-colors disabled:opacity-50"
+        >
+          {formTestBusy ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : (
+            <Zap className="size-3.5" />
+          )}
+          Test connection
+        </button>
+        <button
+          type="button"
           onClick={onCancel}
           className="inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent transition-colors"
         >
           <X className="size-3.5" /> Cancel
         </button>
         <button
+          type="button"
           onClick={handleSave}
           disabled={!form.name || !form.baseUrl}
           className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
@@ -148,6 +214,13 @@ export function LlmProviderConfig() {
   const removeProvider = useSettingsStore((s) => s.removeLlmProvider)
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [testBusyId, setTestBusyId] = useState<string | null>(null)
+  const [testModelFor, setTestModelFor] = useState<Record<string, string>>({})
+  const [testBanner, setTestBanner] = useState<{
+    providerId: string
+    ok: boolean
+    text: string
+  } | null>(null)
 
   const handleSave = (provider: LlmProvider) => {
     if (editingId) {
@@ -169,6 +242,40 @@ export function LlmProviderConfig() {
     window.api.setLlmProviders(providers.filter((p) => p.id !== id))
   }
 
+  const runSavedProviderTest = async (provider: LlmProvider) => {
+    if (provider.models.length === 0) {
+      setTestBanner({
+        providerId: provider.id,
+        ok: false,
+        text: 'Add at least one model ID before testing.'
+      })
+      return
+    }
+    const modelId = testModelFor[provider.id] ?? provider.models[0]
+    setTestBusyId(provider.id)
+    setTestBanner(null)
+    try {
+      const result = await window.api.llmTestConnection({ providerId: provider.id, modelId })
+      if (result.ok) {
+        setTestBanner({
+          providerId: provider.id,
+          ok: true,
+          text: `Model "${result.modelId}" — ${result.replySnippet}`
+        })
+      } else {
+        setTestBanner({ providerId: provider.id, ok: false, text: result.error })
+      }
+    } catch (e) {
+      setTestBanner({
+        providerId: provider.id,
+        ok: false,
+        text: e instanceof Error ? e.message : String(e)
+      })
+    } finally {
+      setTestBusyId(null)
+    }
+  }
+
   return (
     <div className="mx-auto max-w-2xl">
       <div className="flex items-center justify-between mb-4">
@@ -176,7 +283,9 @@ export function LlmProviderConfig() {
           <h3 className="font-medium">LLM Providers</h3>
           <p className="text-sm text-muted-foreground">
             Configure OpenAI, Azure, or any OpenAI-compatible endpoint (Fireworks, Ollama,
-            llama.cpp).
+            llama.cpp). Use <span className="font-medium text-foreground">Test</span> or{' '}
+            <span className="font-medium text-foreground">Test connection</span> to send a tiny
+            chat request and confirm auth and the model ID.
           </p>
         </div>
         {!showForm && !editingId && (
@@ -227,20 +336,70 @@ export function LlmProviderConfig() {
                       Models: {provider.models.join(', ')}
                     </p>
                   )}
+                  {testBanner?.providerId === provider.id && (
+                    <p
+                      className={cn(
+                        'text-xs mt-2 rounded-md border px-2 py-1.5',
+                        testBanner.ok
+                          ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400'
+                          : 'border-destructive/30 bg-destructive/5 text-destructive'
+                      )}
+                    >
+                      {testBanner.ok ? `Connection OK — ${testBanner.text}` : testBanner.text}
+                    </p>
+                  )}
                 </div>
-                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={() => setEditingId(provider.id)}
-                    className="rounded-md p-1.5 text-muted-foreground hover:bg-accent transition-colors"
-                  >
-                    <Pencil className="size-3.5" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(provider.id)}
-                    className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
+                <div className="flex flex-col items-end gap-2 sm:flex-row sm:items-center">
+                  {provider.models.length > 1 && (
+                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <span className="whitespace-nowrap">Test model</span>
+                      <select
+                        value={testModelFor[provider.id] ?? provider.models[0]}
+                        onChange={(e) =>
+                          setTestModelFor((m) => ({ ...m, [provider.id]: e.target.value }))
+                        }
+                        className="max-w-[140px] rounded-md border border-input bg-background px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-ring"
+                      >
+                        {provider.models.map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      title="Send a short test message to verify the endpoint"
+                      onClick={() => runSavedProviderTest(provider)}
+                      disabled={testBusyId === provider.id}
+                      className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent transition-colors disabled:opacity-50"
+                    >
+                      {testBusyId === provider.id ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <Zap className="size-3.5" />
+                      )}
+                      Test
+                    </button>
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        type="button"
+                        onClick={() => setEditingId(provider.id)}
+                        className="rounded-md p-1.5 text-muted-foreground hover:bg-accent transition-colors"
+                      >
+                        <Pencil className="size-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(provider.id)}
+                        className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             )

@@ -34,6 +34,10 @@ const api = {
   chatSend: (chatId: string, message: string, options: Record<string, unknown>) =>
     ipcRenderer.invoke('llm:send', chatId, message, options),
   chatStop: (chatId: string) => ipcRenderer.invoke('llm:stop', chatId),
+  llmTestConnection: (payload: Record<string, unknown>) =>
+    ipcRenderer.invoke('llm:testConnection', payload),
+  embeddingsTestConnection: (payload: Record<string, unknown>) =>
+    ipcRenderer.invoke('embeddings:testConnection', payload),
 
   // Streaming events from main -> renderer
   onChatStream: (callback: (event: unknown) => void) => {
@@ -46,7 +50,16 @@ const api = {
     const handler = (_: unknown, event: unknown) => callback(event)
     ipcRenderer.on('mcp:status', handler)
     return () => ipcRenderer.removeListener('mcp:status', handler)
-  }
+  },
+
+  /** Structured logs from the renderer; main prints them so devs see UI issues in the terminal. */
+  logFromRenderer: (entry: {
+    level: 'error' | 'warn' | 'info' | 'debug'
+    source: string
+    message: string
+    detail?: string
+    stack?: string
+  }) => ipcRenderer.invoke('renderer:log', entry)
 }
 
 contextBridge.exposeInMainWorld('api', api)

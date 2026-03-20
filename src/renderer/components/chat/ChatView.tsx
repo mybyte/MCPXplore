@@ -15,6 +15,7 @@ import {
   User
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { logToMain, logUiError } from '@/lib/rendererLog'
 
 export function ChatView() {
   const activeChatId = useChatStore((s) => s.activeChatId)
@@ -124,8 +125,15 @@ export function ChatView() {
             .getState()
             .chats.find((c) => c.id === e.chatId)
             ?.messages.find((m) => m.id === e.messageId)
+          const errText = String(e.data)
+          logToMain({
+            level: 'error',
+            source: 'chat-stream',
+            message: errText,
+            detail: JSON.stringify({ chatId: e.chatId, messageId: e.messageId })
+          })
           useChatStore.getState().updateMessage(e.chatId, e.messageId, {
-            content: (existingMsg?.content ?? '') + `\n\n_Error: ${String(e.data)}_`
+            content: (existingMsg?.content ?? '') + `\n\n_Error: ${errText}_`
           })
           break
         }
@@ -180,10 +188,11 @@ export function ChatView() {
         providerId: selectedProvider,
         modelId: selectedModel,
         enabledTools: activeChat?.enabledTools ?? [],
-        messages: historyMessages
+        messages: historyMessages,
+        messageId: assistantMsgId
       })
     } catch (err) {
-      console.error('Chat send failed:', err)
+      logUiError('ChatView.chatSend', err, { chatId: activeChatId })
       setIsStreaming(false)
     }
   }, [input, activeChatId, isStreaming, selectedProvider, selectedModel, activeChat, addMessage, currentProvider])

@@ -5,6 +5,17 @@ import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
 import type { McpServerConfig } from '../config/store'
 import type { McpToolInfo, McpResourceInfo, McpServerStatus } from './types'
 
+/** Cursor-style configs often omit `transport`; infer like other MCP clients. */
+function normalizeMcpConfig(config: McpServerConfig): McpServerConfig {
+  let transport: McpServerConfig['transport'] | undefined = config.transport
+  if (!transport) {
+    if (config.command?.trim()) transport = 'stdio'
+    else if (config.url?.trim()) transport = 'streamable-http'
+    else transport = 'stdio'
+  }
+  return { ...config, transport }
+}
+
 interface ManagedServer {
   config: McpServerConfig
   client: Client
@@ -29,6 +40,8 @@ class McpManager {
   }
 
   async connect(config: McpServerConfig): Promise<McpServerStatus> {
+    config = normalizeMcpConfig(config)
+
     if (this.servers.has(config.id)) {
       await this.disconnect(config.id)
     }
@@ -46,10 +59,21 @@ class McpManager {
 
     try {
       if (config.transport === 'stdio') {
+        // Let the SDK merge getDefaultEnvironment() + config.env — do not pass full
+        // process.env (Electron pollutes the child and breaks clients like docker -e VAR).
+        const extraEnv = config.env
+        const cleaned =
+          extraEnv &&
+          Object.fromEntries(
+            Object.entries(extraEnv).filter((entry): entry is [string, string] => {
+              const v = entry[1]
+              return typeof v === 'string' && v.length > 0
+            })
+          )
         transport = new StdioClientTransport({
           command: config.command!,
-          args: config.args,
-          env: { ...process.env, ...(config.env ?? {}) } as Record<string, string>
+          args: config.args ?? [],
+          env: cleaned && Object.keys(cleaned).length > 0 ? cleaned : undefined
         })
       } else if (config.transport === 'streamable-http') {
         transport = new StreamableHTTPClientTransport(new URL(config.url!))

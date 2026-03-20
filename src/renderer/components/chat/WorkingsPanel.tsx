@@ -178,15 +178,15 @@ function UsageSection({
       <div className="grid grid-cols-3 gap-2">
         <div>
           <p className="text-[10px] text-muted-foreground">Input</p>
-          <p className="text-xs font-mono">{usage.promptTokens.toLocaleString()}</p>
+          <p className="text-xs font-mono">{(usage.promptTokens ?? 0).toLocaleString()}</p>
         </div>
         <div>
           <p className="text-[10px] text-muted-foreground">Output</p>
-          <p className="text-xs font-mono">{usage.completionTokens.toLocaleString()}</p>
+          <p className="text-xs font-mono">{(usage.completionTokens ?? 0).toLocaleString()}</p>
         </div>
         <div>
           <p className="text-[10px] text-muted-foreground">Total</p>
-          <p className="text-xs font-mono">{usage.totalTokens.toLocaleString()}</p>
+          <p className="text-xs font-mono">{(usage.totalTokens ?? 0).toLocaleString()}</p>
         </div>
       </div>
     </div>
