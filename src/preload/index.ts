@@ -1,6 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 const api = {
+  /** Host OS — used for macOS-only UI (e.g. title bar drag with hiddenInset). */
+  platform: process.platform,
+
   // Config
   configGetAll: () => ipcRenderer.invoke('config:getAll'),
   configGet: (key: string) => ipcRenderer.invoke('config:get', key),

@@ -117,7 +117,7 @@ export function Sidebar() {
       )}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-3 pt-8 pb-2">
+      <div className="flex items-center justify-between px-3 py-2">
         {!collapsed && <h1 className="text-sm font-semibold tracking-tight">MCPXplore</h1>}
         <button
           onClick={toggleSidebar}
