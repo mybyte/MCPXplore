@@ -22,7 +22,7 @@ import { cn } from '@/lib/utils'
 
 const navItems: { view: View; icon: typeof MessageSquare; label: string }[] = [
   { view: 'chat', icon: MessageSquare, label: 'Chat' },
-  { view: 'mcp-explorer', icon: Blocks, label: 'MCP Explorer' },
+  { view: 'mcp-explorer', icon: Blocks, label: 'MCP' },
   { view: 'settings', icon: Settings, label: 'Settings' }
 ]
 
@@ -116,7 +116,7 @@ function ServerList() {
   if (servers.length === 0) {
     return (
       <p className="px-3 text-xs text-muted-foreground">
-        No MCP servers configured. Add one in Settings.
+        No MCP servers configured.
       </p>
     )
   }

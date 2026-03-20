@@ -9,7 +9,7 @@ const TRANSPORT_TYPES = [
   { value: 'sse', label: 'SSE (legacy)' }
 ] as const
 
-function ServerForm({
+export function ServerForm({
   initial,
   onSave,
   onCancel
@@ -215,7 +215,7 @@ export function McpServerConfig() {
         {!showForm && !editingId && (
           <button
             onClick={() => setShowForm(true)}
-            className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+            className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors shrink-0"
           >
             <Plus className="size-3.5" /> Add Server
           </button>

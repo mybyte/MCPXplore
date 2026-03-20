@@ -2,15 +2,13 @@ import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { LlmProviderConfig } from './LlmProviderConfig'
 import { EmbeddingsProviderConfig } from './EmbeddingsProviderConfig'
-import { McpServerConfig } from './McpServerConfig'
 import { MongoConfig } from './MongoConfig'
 
-type SettingsTab = 'llm' | 'embeddings' | 'mcp' | 'mongodb'
+type SettingsTab = 'llm' | 'embeddings' | 'mongodb'
 
 const tabs: { id: SettingsTab; label: string }[] = [
   { id: 'llm', label: 'LLM Providers' },
   { id: 'embeddings', label: 'Embeddings' },
-  { id: 'mcp', label: 'MCP Servers' },
   { id: 'mongodb', label: 'MongoDB' }
 ]
 
@@ -45,7 +43,6 @@ export function SettingsPanel() {
       <div className="flex-1 overflow-y-auto p-6">
         {activeTab === 'llm' && <LlmProviderConfig />}
         {activeTab === 'embeddings' && <EmbeddingsProviderConfig />}
-        {activeTab === 'mcp' && <McpServerConfig />}
         {activeTab === 'mongodb' && <MongoConfig />}
       </div>
     </div>

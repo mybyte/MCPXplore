@@ -4,20 +4,26 @@ import {
   Plug,
   Unplug,
   Loader2,
-  PlugZap
+  PlugZap,
+  Plus,
+  Pencil
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useMcpStore } from '@/stores/mcpStore'
 import { useSettingsStore } from '@/stores/settingsStore'
-import { useAppStore } from '@/stores/appStore'
 import { logUiError } from '@/lib/rendererLog'
 
-export function ServerRail() {
+export function ServerRail({
+  onAddServer,
+  onEditServer
+}: {
+  onAddServer: () => void
+  onEditServer: (id: string) => void
+}) {
   const mcpConfigs = useSettingsStore((s) => s.mcpServers)
   const servers = useMcpStore((s) => s.servers)
   const activeServerId = useMcpStore((s) => s.activeServerId)
   const setActiveServer = useMcpStore((s) => s.setActiveServer)
-  const setView = useAppStore((s) => s.setView)
   const [connectingIds, setConnectingIds] = useState<Set<string>>(new Set())
   const [connectingAll, setConnectingAll] = useState(false)
 
@@ -60,7 +66,7 @@ export function ServerRail() {
       <div className="flex h-full flex-col items-center justify-center gap-3 p-4 text-center">
         <p className="text-xs text-muted-foreground">No servers configured</p>
         <button
-          onClick={() => setView('settings')}
+          onClick={onAddServer}
           className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
         >
           Add Server
@@ -80,20 +86,29 @@ export function ServerRail() {
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
           Servers
         </span>
-        {hasDisconnected && (
+        <div className="flex items-center gap-0.5">
+          {hasDisconnected && (
+            <button
+              onClick={handleConnectAll}
+              disabled={connectingAll}
+              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent transition-colors"
+              title="Connect all"
+            >
+              {connectingAll ? (
+                <Loader2 className="size-3 animate-spin" />
+              ) : (
+                <PlugZap className="size-3" />
+              )}
+            </button>
+          )}
           <button
-            onClick={handleConnectAll}
-            disabled={connectingAll}
-            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent transition-colors"
-            title="Connect all"
+            onClick={onAddServer}
+            className="rounded px-1.5 py-0.5 text-muted-foreground hover:bg-accent transition-colors"
+            title="Add server"
           >
-            {connectingAll ? (
-              <Loader2 className="size-3 animate-spin" />
-            ) : (
-              <PlugZap className="size-3" />
-            )}
+            <Plus className="size-3" />
           </button>
-        )}
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto py-1">
         {mcpConfigs.map((config) => {
@@ -122,23 +137,35 @@ export function ServerRail() {
                 )}
               />
               <span className="flex-1 truncate text-xs font-medium">{config.name}</span>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  isConnected ? handleDisconnect(config.id) : handleConnect(config.id)
-                }}
-                disabled={isConnecting}
-                className="opacity-0 group-hover:opacity-100 rounded p-0.5 text-muted-foreground hover:text-foreground transition-all"
-                title={isConnected ? 'Disconnect' : 'Connect'}
-              >
-                {isConnecting ? (
-                  <Loader2 className="size-3 animate-spin" />
-                ) : isConnected ? (
-                  <Unplug className="size-3" />
-                ) : (
-                  <Plug className="size-3" />
-                )}
-              </button>
+              <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onEditServer(config.id)
+                  }}
+                  className="rounded p-0.5 text-muted-foreground hover:text-foreground transition-colors"
+                  title="Edit server"
+                >
+                  <Pencil className="size-3" />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    isConnected ? handleDisconnect(config.id) : handleConnect(config.id)
+                  }}
+                  disabled={isConnecting}
+                  className="rounded p-0.5 text-muted-foreground hover:text-foreground transition-colors"
+                  title={isConnected ? 'Disconnect' : 'Connect'}
+                >
+                  {isConnecting ? (
+                    <Loader2 className="size-3 animate-spin" />
+                  ) : isConnected ? (
+                    <Unplug className="size-3" />
+                  ) : (
+                    <Plug className="size-3" />
+                  )}
+                </button>
+              </div>
             </div>
           )
         })}
