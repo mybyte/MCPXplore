@@ -30,10 +30,16 @@ export interface McpServerConfig {
   env?: Record<string, string>
 }
 
+export interface MongoSettings {
+  connectionUri: string
+  chatDatabase: string
+}
+
 interface SettingsState {
   llmProviders: LlmProvider[]
   embeddingsProviders: EmbeddingsProvider[]
   mcpServers: McpServerConfig[]
+  mongo: MongoSettings
   setLlmProviders: (providers: LlmProvider[]) => void
   addLlmProvider: (provider: LlmProvider) => void
   updateLlmProvider: (id: string, patch: Partial<LlmProvider>) => void
@@ -46,12 +52,14 @@ interface SettingsState {
   addMcpServer: (server: McpServerConfig) => void
   updateMcpServer: (id: string, patch: Partial<McpServerConfig>) => void
   removeMcpServer: (id: string) => void
+  setMongo: (mongo: MongoSettings) => void
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({
   llmProviders: [],
   embeddingsProviders: [],
   mcpServers: [],
+  mongo: { connectionUri: '', chatDatabase: '' },
 
   setLlmProviders: (providers) => set({ llmProviders: providers }),
   addLlmProvider: (provider) =>
@@ -83,5 +91,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       mcpServers: s.mcpServers.map((srv) => (srv.id === id ? { ...srv, ...patch } : srv))
     })),
   removeMcpServer: (id) =>
-    set((s) => ({ mcpServers: s.mcpServers.filter((srv) => srv.id !== id) }))
+    set((s) => ({ mcpServers: s.mcpServers.filter((srv) => srv.id !== id) })),
+
+  setMongo: (mongo) => set({ mongo })
 }))

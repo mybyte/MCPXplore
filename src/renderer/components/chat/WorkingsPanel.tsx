@@ -6,9 +6,12 @@ import {
   ChevronDown,
   ChevronRight,
   X,
-  Cpu
+  Cpu,
+  MessageSquare
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { McpToolSettings, type McpToolSettingsProps } from './McpToolSettings'
+import type { McpToolsMode } from '@/stores/chatStore'
 
 export interface WorkingsData {
   reasoning: string
@@ -25,36 +28,115 @@ export interface WorkingsData {
   model?: string
 }
 
+type SideTab = 'reply' | 'tools'
+
 interface WorkingsPanelProps {
   data: WorkingsData
   open: boolean
   onClose: () => void
+  mcpToolsMode: McpToolsMode
+  enabledTools: string[]
+  onMcpModeChange: (mode: McpToolsMode) => void
+  onMcpToolsChange: (tools: string[]) => void
 }
 
-export function WorkingsPanel({ data, open, onClose }: WorkingsPanelProps) {
+export function WorkingsPanel({
+  data,
+  open,
+  onClose,
+  mcpToolsMode,
+  enabledTools,
+  onMcpModeChange,
+  onMcpToolsChange
+}: WorkingsPanelProps) {
+  const [tab, setTab] = useState<SideTab>('reply')
+
   if (!open) return null
 
-  const hasContent =
-    data.reasoning || data.toolCalls.length > 0 || data.usage || data.model
+  const toolSettingsProps: McpToolSettingsProps = {
+    mcpToolsMode,
+    enabledTools,
+    onModeChange: onMcpModeChange,
+    onToolsChange: onMcpToolsChange
+  }
+
+  const toolsTabActive = mcpToolsMode === 'pick'
 
   return (
-    <div className="flex h-full w-80 flex-col border-l border-border bg-card">
-      <div className="flex items-center justify-between border-b border-border px-3 py-2">
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Workings
-        </span>
+    <div className="flex h-full min-h-0 w-[22rem] shrink-0 flex-col border-l border-border bg-card">
+      <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
+        <div
+          className="flex min-w-0 flex-1 gap-0.5 rounded-md bg-muted/50 p-0.5"
+          role="tablist"
+          aria-label="Panel section"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'reply'}
+            onClick={() => setTab('reply')}
+            className={cn(
+              'flex flex-1 items-center justify-center gap-1 rounded px-2 py-1.5 text-xs font-medium transition-colors',
+              tab === 'reply' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
+            )}
+          >
+            <MessageSquare className="size-3 shrink-0" />
+            <span className="truncate">Last reply</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'tools'}
+            onClick={() => setTab('tools')}
+            className={cn(
+              'relative flex flex-1 items-center justify-center gap-1 rounded px-2 py-1.5 text-xs font-medium transition-colors',
+              tab === 'tools' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
+            )}
+          >
+            <Wrench className="size-3 shrink-0" />
+            <span className="truncate">MCP tools</span>
+            {toolsTabActive ? (
+              <span
+                className="absolute right-1 top-1 size-1.5 rounded-full bg-primary"
+                aria-hidden
+              />
+            ) : null}
+          </button>
+        </div>
         <button
+          type="button"
           onClick={onClose}
-          className="rounded-md p-1 text-muted-foreground hover:bg-accent transition-colors"
+          className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-accent transition-colors"
+          aria-label="Close panel"
         >
           <X className="size-3.5" />
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+      <div className="flex min-h-0 flex-1 flex-col">
+        {tab === 'reply' ? (
+          <WorkingsReplyTab data={data} />
+        ) : (
+          <McpToolSettings {...toolSettingsProps} />
+        )}
+      </div>
+    </div>
+  )
+}
+
+function WorkingsReplyTab({ data }: { data: WorkingsData }) {
+  const hasContent =
+    data.reasoning || data.toolCalls.length > 0 || data.usage || data.model
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3">
+      <p className="mb-3 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        Reasoning, tool calls, and usage for the latest assistant response
+      </p>
+      <div className="space-y-3">
         {!hasContent && (
-          <p className="text-xs text-muted-foreground text-center py-8">
-            Send a message to see the model's workings here.
+          <p className="text-center text-xs text-muted-foreground py-8">
+            Send a message to see the model&apos;s workings here.
           </p>
         )}
 
@@ -83,6 +165,7 @@ function ReasoningSection({ text }: { text: string }) {
   return (
     <div className="rounded-md border border-border">
       <button
+        type="button"
         onClick={() => setExpanded(!expanded)}
         className="flex w-full items-center gap-2 px-2.5 py-2 text-left"
       >
@@ -96,9 +179,7 @@ function ReasoningSection({ text }: { text: string }) {
       </button>
       {expanded && (
         <div className="border-t border-border px-2.5 py-2">
-          <p className="text-[11px] text-muted-foreground whitespace-pre-wrap leading-relaxed">
-            {text}
-          </p>
+          <p className="text-[11px] text-muted-foreground whitespace-pre-wrap leading-relaxed">{text}</p>
         </div>
       )}
     </div>
@@ -112,9 +193,7 @@ function ToolCallSection({
 }) {
   const [expanded, setExpanded] = useState(true)
   const duration =
-    toolCall.startTime && toolCall.endTime
-      ? toolCall.endTime - toolCall.startTime
-      : undefined
+    toolCall.startTime && toolCall.endTime ? toolCall.endTime - toolCall.startTime : undefined
 
   return (
     <div
@@ -126,6 +205,7 @@ function ToolCallSection({
       )}
     >
       <button
+        type="button"
         onClick={() => setExpanded(!expanded)}
         className="flex w-full items-center gap-2 px-2.5 py-2 text-left"
       >
@@ -135,23 +215,23 @@ function ToolCallSection({
           <ChevronRight className="size-3 text-muted-foreground" />
         )}
         <Wrench className="size-3 text-blue-500" />
-        <span className="text-xs font-mono font-medium flex-1 truncate">{toolCall.name}</span>
+        <span className="flex-1 truncate font-mono text-xs font-medium">{toolCall.name}</span>
         {duration !== undefined && (
           <span className="text-[10px] text-muted-foreground">{duration}ms</span>
         )}
       </button>
       {expanded && (
-        <div className="border-t border-border px-2.5 py-2 space-y-2">
+        <div className="space-y-2 border-t border-border px-2.5 py-2">
           <div>
-            <p className="text-[10px] font-medium text-muted-foreground mb-0.5">Arguments</p>
+            <p className="mb-0.5 text-[10px] font-medium text-muted-foreground">Arguments</p>
             <pre className="overflow-x-auto rounded bg-muted p-1.5 font-mono text-[10px] leading-relaxed">
               {JSON.stringify(toolCall.args, null, 2)}
             </pre>
           </div>
           {toolCall.result !== undefined && (
             <div>
-              <p className="text-[10px] font-medium text-muted-foreground mb-0.5">Result</p>
-              <pre className="overflow-x-auto rounded bg-muted p-1.5 font-mono text-[10px] leading-relaxed max-h-32 overflow-y-auto">
+              <p className="mb-0.5 text-[10px] font-medium text-muted-foreground">Result</p>
+              <pre className="max-h-32 overflow-x-auto overflow-y-auto rounded bg-muted p-1.5 font-mono text-[10px] leading-relaxed">
                 {typeof toolCall.result === 'string'
                   ? toolCall.result
                   : JSON.stringify(toolCall.result, null, 2)}
@@ -164,16 +244,12 @@ function ToolCallSection({
   )
 }
 
-function UsageSection({
-  usage
-}: {
-  usage: NonNullable<WorkingsData['usage']>
-}) {
+function UsageSection({ usage }: { usage: NonNullable<WorkingsData['usage']> }) {
   return (
     <div className="rounded-md border border-border px-2.5 py-2">
-      <div className="flex items-center gap-2 mb-1.5">
+      <div className="mb-1.5 flex items-center gap-2">
         <BarChart3 className="size-3 text-green-500" />
-        <span className="text-xs font-medium">Token Usage</span>
+        <span className="text-xs font-medium">Token usage</span>
       </div>
       <div className="grid grid-cols-3 gap-2">
         <div>

@@ -2,11 +2,17 @@ import { app } from 'electron'
 import { join } from 'path'
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs'
 
+export interface MongoSettings {
+  connectionUri: string
+  chatDatabase: string
+}
+
 export interface AppConfig {
   llmProviders: LlmProviderConfig[]
   embeddingsProviders: EmbeddingsProviderConfig[]
   mcpServers: McpServerConfig[]
   chats: ChatMeta[]
+  mongo: MongoSettings
 }
 
 export interface LlmProviderConfig {
@@ -42,17 +48,39 @@ export interface McpServerConfig {
 export interface ChatMeta {
   id: string
   title: string
+  mcpToolsMode: 'all' | 'pick'
   enabledTools: string[]
   providerId: string
   modelId: string
   createdAt: number
 }
 
+function normalizeChatMeta(entry: unknown): ChatMeta {
+  const c = entry as Partial<ChatMeta>
+  const enabledTools = Array.isArray(c.enabledTools) ? c.enabledTools : []
+  const mcpToolsMode: 'all' | 'pick' =
+    c.mcpToolsMode === 'pick' || c.mcpToolsMode === 'all'
+      ? c.mcpToolsMode
+      : enabledTools.length > 0
+        ? 'pick'
+        : 'all'
+  return {
+    id: String(c.id ?? ''),
+    title: String(c.title ?? ''),
+    mcpToolsMode,
+    enabledTools,
+    providerId: String(c.providerId ?? ''),
+    modelId: String(c.modelId ?? ''),
+    createdAt: typeof c.createdAt === 'number' ? c.createdAt : Date.now()
+  }
+}
+
 const DEFAULT_CONFIG: AppConfig = {
   llmProviders: [],
   embeddingsProviders: [],
   mcpServers: [],
-  chats: []
+  chats: [],
+  mongo: { connectionUri: '', chatDatabase: '' }
 }
 
 class ConfigStore {
@@ -70,7 +98,16 @@ class ConfigStore {
     try {
       if (existsSync(this.configPath)) {
         const raw = readFileSync(this.configPath, 'utf-8')
-        return { ...DEFAULT_CONFIG, ...JSON.parse(raw) }
+        const parsed = { ...DEFAULT_CONFIG, ...JSON.parse(raw) } as AppConfig & Record<string, unknown>
+        if (Array.isArray(parsed.chats)) {
+          parsed.chats = parsed.chats.map(normalizeChatMeta)
+        }
+        const m = parsed.mongo as Partial<MongoSettings> | undefined
+        parsed.mongo = {
+          connectionUri: typeof m?.connectionUri === 'string' ? m.connectionUri : '',
+          chatDatabase: typeof m?.chatDatabase === 'string' ? m.chatDatabase : ''
+        }
+        return parsed
       }
     } catch {
       console.error('Failed to load config, using defaults')

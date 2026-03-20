@@ -5,6 +5,12 @@ import { handleChatSend, stopChat, testLlmConnection } from './llm/chat'
 import { testEmbeddingsConnection } from './llm/embeddings'
 import { formatApiError } from './llm/format-error'
 import type { AppConfig } from './config/store'
+import {
+  mongoEnsureDatabase,
+  mongoLoadChats,
+  mongoSyncChats,
+  mongoTestConnection
+} from './mongo/service'
 
 const LOG_LEVELS = new Set(['error', 'warn', 'info', 'debug'])
 
@@ -149,4 +155,45 @@ export function registerIpcHandlers(): void {
     }
     return result
   })
+
+  // ── MongoDB (chat history) ────────────────────────────────────────
+
+  ipcMain.handle('mongo:testConnection', async (_event, connectionUri: unknown) => {
+    return mongoTestConnection(typeof connectionUri === 'string' ? connectionUri : '')
+  })
+
+  ipcMain.handle(
+    'mongo:ensureDatabase',
+    async (_event, payload: { connectionUri?: string; databaseName?: string }) => {
+      return mongoEnsureDatabase(
+        typeof payload?.connectionUri === 'string' ? payload.connectionUri : '',
+        typeof payload?.databaseName === 'string' ? payload.databaseName : ''
+      )
+    }
+  )
+
+  ipcMain.handle(
+    'mongo:loadChats',
+    async (_event, payload: { connectionUri?: string; databaseName?: string }) => {
+      return mongoLoadChats(
+        typeof payload?.connectionUri === 'string' ? payload.connectionUri : '',
+        typeof payload?.databaseName === 'string' ? payload.databaseName : ''
+      )
+    }
+  )
+
+  ipcMain.handle(
+    'mongo:syncChats',
+    async (
+      _event,
+      payload: { connectionUri?: string; databaseName?: string; chats?: Record<string, unknown>[] }
+    ) => {
+      const chats = Array.isArray(payload?.chats) ? payload.chats : []
+      await mongoSyncChats(
+        typeof payload?.connectionUri === 'string' ? payload.connectionUri : '',
+        typeof payload?.databaseName === 'string' ? payload.databaseName : '',
+        chats
+      )
+    }
+  )
 }

@@ -7,6 +7,7 @@ export function useConfigSync() {
   const setLlmProviders = useSettingsStore((s) => s.setLlmProviders)
   const setEmbeddingsProviders = useSettingsStore((s) => s.setEmbeddingsProviders)
   const setMcpServerConfigs = useSettingsStore((s) => s.setMcpServers)
+  const setMongo = useSettingsStore((s) => s.setMongo)
   const setMcpServers = useMcpStore((s) => s.setServers)
 
   useEffect(() => {
@@ -19,6 +20,13 @@ export function useConfigSync() {
           if (Array.isArray(c.embeddingsProviders))
             setEmbeddingsProviders(c.embeddingsProviders as never[])
           if (Array.isArray(c.mcpServers)) setMcpServerConfigs(c.mcpServers as never[])
+          const m = c.mongo as { connectionUri?: unknown; chatDatabase?: unknown } | undefined
+          if (m && typeof m === 'object') {
+            setMongo({
+              connectionUri: typeof m.connectionUri === 'string' ? m.connectionUri : '',
+              chatDatabase: typeof m.chatDatabase === 'string' ? m.chatDatabase : ''
+            })
+          }
         }
 
         // Load existing MCP statuses
@@ -39,6 +47,8 @@ export function useConfigSync() {
       }
     })
 
-    return cleanup
-  }, [setLlmProviders, setEmbeddingsProviders, setMcpServerConfigs, setMcpServers])
+    return () => {
+      cleanup()
+    }
+  }, [setLlmProviders, setEmbeddingsProviders, setMcpServerConfigs, setMongo, setMcpServers])
 }

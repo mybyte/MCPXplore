@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 
+export type McpToolsMode = 'all' | 'pick'
+
 export interface Message {
   id: string
   role: 'user' | 'assistant' | 'tool'
@@ -24,6 +26,7 @@ export interface Chat {
   id: string
   title: string
   messages: Message[]
+  mcpToolsMode: McpToolsMode
   enabledTools: string[]
   providerId: string
   modelId: string
@@ -36,9 +39,13 @@ interface ChatState {
   setActiveChat: (id: string | null) => void
   createChat: () => string
   deleteChat: (id: string) => void
+  replaceChats: (chats: Chat[]) => void
+  updateChat: (chatId: string, patch: Partial<Omit<Chat, 'id'>>) => void
   addMessage: (chatId: string, message: Message) => void
+  replaceChatMessages: (chatId: string, messages: Message[]) => void
   updateMessage: (chatId: string, messageId: string, patch: Partial<Message>) => void
   setEnabledTools: (chatId: string, tools: string[]) => void
+  setMcpToolsMode: (chatId: string, mode: McpToolsMode) => void
 }
 
 let nextId = 1
@@ -58,6 +65,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       id,
       title: 'New Chat',
       messages: [],
+      mcpToolsMode: 'all',
       enabledTools: [],
       providerId: '',
       modelId: '',
@@ -73,11 +81,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
       activeChatId: s.activeChatId === id ? null : s.activeChatId
     })),
 
+  replaceChats: (chats) =>
+    set((s) => {
+      const sorted = [...chats].sort((a, b) => b.createdAt - a.createdAt)
+      const stillValid = sorted.some((c) => c.id === s.activeChatId)
+      return {
+        chats: sorted,
+        activeChatId: stillValid ? s.activeChatId : sorted[0]?.id ?? null
+      }
+    }),
+
+  updateChat: (chatId, patch) =>
+    set((s) => ({
+      chats: s.chats.map((c) => (c.id === chatId ? { ...c, ...patch } : c))
+    })),
+
   addMessage: (chatId, message) =>
     set((s) => ({
       chats: s.chats.map((c) =>
         c.id === chatId ? { ...c, messages: [...c.messages, message] } : c
       )
+    })),
+
+  replaceChatMessages: (chatId, messages) =>
+    set((s) => ({
+      chats: s.chats.map((c) => (c.id === chatId ? { ...c, messages } : c))
     })),
 
   updateMessage: (chatId, messageId, patch) =>
@@ -95,5 +123,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setEnabledTools: (chatId, tools) =>
     set((s) => ({
       chats: s.chats.map((c) => (c.id === chatId ? { ...c, enabledTools: tools } : c))
+    })),
+
+  setMcpToolsMode: (chatId, mode) =>
+    set((s) => ({
+      chats: s.chats.map((c) => (c.id === chatId ? { ...c, mcpToolsMode: mode } : c))
     }))
 }))

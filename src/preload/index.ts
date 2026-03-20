@@ -39,6 +39,18 @@ const api = {
   embeddingsTestConnection: (payload: Record<string, unknown>) =>
     ipcRenderer.invoke('embeddings:testConnection', payload),
 
+  mongoTestConnection: (connectionUri: string) =>
+    ipcRenderer.invoke('mongo:testConnection', connectionUri),
+  mongoEnsureDatabase: (payload: { connectionUri: string; databaseName: string }) =>
+    ipcRenderer.invoke('mongo:ensureDatabase', payload),
+  mongoLoadChats: (payload: { connectionUri: string; databaseName: string }) =>
+    ipcRenderer.invoke('mongo:loadChats', payload),
+  mongoSyncChats: (payload: {
+    connectionUri: string
+    databaseName: string
+    chats: Record<string, unknown>[]
+  }) => ipcRenderer.invoke('mongo:syncChats', payload),
+
   // Streaming events from main -> renderer
   onChatStream: (callback: (event: unknown) => void) => {
     const handler = (_: unknown, event: unknown) => callback(event)

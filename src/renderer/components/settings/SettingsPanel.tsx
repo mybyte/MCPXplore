@@ -3,13 +3,15 @@ import { cn } from '@/lib/utils'
 import { LlmProviderConfig } from './LlmProviderConfig'
 import { EmbeddingsProviderConfig } from './EmbeddingsProviderConfig'
 import { McpServerConfig } from './McpServerConfig'
+import { MongoConfig } from './MongoConfig'
 
-type SettingsTab = 'llm' | 'embeddings' | 'mcp'
+type SettingsTab = 'llm' | 'embeddings' | 'mcp' | 'mongodb'
 
 const tabs: { id: SettingsTab; label: string }[] = [
   { id: 'llm', label: 'LLM Providers' },
   { id: 'embeddings', label: 'Embeddings' },
-  { id: 'mcp', label: 'MCP Servers' }
+  { id: 'mcp', label: 'MCP Servers' },
+  { id: 'mongodb', label: 'MongoDB' }
 ]
 
 export function SettingsPanel() {
@@ -44,6 +46,7 @@ export function SettingsPanel() {
         {activeTab === 'llm' && <LlmProviderConfig />}
         {activeTab === 'embeddings' && <EmbeddingsProviderConfig />}
         {activeTab === 'mcp' && <McpServerConfig />}
+        {activeTab === 'mongodb' && <MongoConfig />}
       </div>
     </div>
   )

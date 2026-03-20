@@ -2,7 +2,13 @@ import { BrowserWindow } from 'electron'
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 import { getConfigStore, type LlmProviderConfig } from '../config/store'
 import { createClient, chatRequestDefaults } from './providers'
-import { buildOpenAITools, ToolCallAccumulator, executeToolCall, buildToolResultMessages } from './tools'
+import {
+  buildChatCompletionTools,
+  type McpToolsSelection,
+  ToolCallAccumulator,
+  executeToolCall,
+  buildToolResultMessages
+} from './tools'
 import { ThinkTagParser } from './reasoning'
 import { formatApiError } from './format-error'
 
@@ -29,6 +35,7 @@ export async function handleChatSend(
   options: {
     providerId: string
     modelId: string
+    mcpToolsMode?: 'all' | 'pick'
     enabledTools: string[]
     messages: Array<{ role: string; content: string }>
     messageId?: string
@@ -51,7 +58,10 @@ export async function handleChatSend(
   }
 
   try {
-    const { tools, serverMap } = buildOpenAITools(options.enabledTools)
+    const mode = options.mcpToolsMode ?? 'all'
+    const selection: McpToolsSelection =
+      mode === 'all' ? { mode: 'all' } : { mode: 'pick', keys: options.enabledTools }
+    const { tools, serverMap } = buildChatCompletionTools(selection)
 
     const messages: ChatCompletionMessageParam[] = options.messages.map((m) => ({
       role: m.role as 'user' | 'assistant' | 'system',

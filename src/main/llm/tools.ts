@@ -1,19 +1,22 @@
-import type OpenAI from 'openai'
 import type { ChatCompletionMessageParam, ChatCompletionTool, ChatCompletionChunk } from 'openai/resources/chat/completions'
 import { getMcpManager } from '../mcp/manager'
 
 // ── Format conversion ─────────────────────────────────────────────────
 
+/** How MCP tools are exposed to the chat completion API (OpenAI-compatible). */
+export type McpToolsSelection =
+  | { mode: 'all' }
+  | { mode: 'pick'; keys: string[] }
+
 /**
- * Builds the `tools` array for an OpenAI chat completion request from the
- * MCP tools exposed by connected servers.
+ * Builds the `tools` array for a chat completion request from MCP tools on
+ * connected servers. Same shape for OpenAI, Azure OpenAI, Fireworks, OpenRouter.
  *
- * @param enabledTools  Tool keys in the form `serverId:toolName`.
- *                      When non-empty only those tools are included.
- * @returns             The `tools` param and a lookup map from tool name
- *                      back to serverId (needed to route `callTool`).
+ * @param selection  `all` — every connected tool; `pick` — only `serverId:toolName`
+ *                   keys listed (empty `keys` ⇒ no tools).
+ * @returns          The `tools` param and a map from tool name → serverId for routing.
  */
-export function buildOpenAITools(enabledTools: string[]): {
+export function buildChatCompletionTools(selection: McpToolsSelection): {
   tools: ChatCompletionTool[]
   serverMap: Map<string, string>
 } {
@@ -21,12 +24,13 @@ export function buildOpenAITools(enabledTools: string[]): {
   const allStatuses = mcpManager.getAllStatuses()
   const tools: ChatCompletionTool[] = []
   const serverMap = new Map<string, string>()
+  const keySet = selection.mode === 'pick' ? new Set(selection.keys) : null
 
   for (const server of allStatuses) {
     if (server.status !== 'connected') continue
     for (const tool of server.tools) {
       const toolKey = `${server.id}:${tool.name}`
-      if (enabledTools.length > 0 && !enabledTools.includes(toolKey)) continue
+      if (keySet && !keySet.has(toolKey)) continue
 
       tools.push({
         type: 'function',

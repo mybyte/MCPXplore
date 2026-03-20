@@ -1,31 +1,43 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { useChatStore, type Message, type ToolCallInfo } from '@/stores/chatStore'
+import { useChatStore, type Message } from '@/stores/chatStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useAppStore } from '@/stores/appStore'
-import { ToolPicker } from './ToolPicker'
 import { WorkingsPanel, type WorkingsData } from './WorkingsPanel'
 import {
   MessageSquare,
   Send,
   Square,
-  Wrench,
   SlidersHorizontal,
   ChevronDown,
   ChevronRight,
   Brain,
   Bot,
-  User
+  User,
+  RotateCcw,
+  Pencil,
+  MoreHorizontal
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { logToMain, logUiError } from '@/lib/rendererLog'
+import { ChatMarkdown } from './ChatMarkdown'
+
+function buildPriorForApi(messages: Message[], beforeIndex: number) {
+  return messages
+    .slice(0, beforeIndex)
+    .filter((m) => m.role === 'user' || m.role === 'assistant')
+    .map((m) => ({ role: m.role, content: m.content }))
+}
 
 export function ChatView() {
   const activeChatId = useChatStore((s) => s.activeChatId)
   const chats = useChatStore((s) => s.chats)
   const createChat = useChatStore((s) => s.createChat)
   const addMessage = useChatStore((s) => s.addMessage)
+  const replaceChatMessages = useChatStore((s) => s.replaceChatMessages)
   const updateMessage = useChatStore((s) => s.updateMessage)
+  const updateChat = useChatStore((s) => s.updateChat)
   const setEnabledTools = useChatStore((s) => s.setEnabledTools)
+  const setMcpToolsMode = useChatStore((s) => s.setMcpToolsMode)
   const llmProviders = useSettingsStore((s) => s.llmProviders)
   const workingsPanelOpen = useAppStore((s) => s.workingsPanelOpen)
   const toggleWorkingsPanel = useAppStore((s) => s.toggleWorkingsPanel)
@@ -33,10 +45,13 @@ export function ChatView() {
   const activeChat = chats.find((c) => c.id === activeChatId)
   const [input, setInput] = useState('')
   const [isStreaming, setIsStreaming] = useState(false)
-  const [toolPickerOpen, setToolPickerOpen] = useState(false)
   const [selectedProvider, setSelectedProvider] = useState('')
   const [selectedModel, setSelectedModel] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const rerunMenuRef = useRef<HTMLDivElement>(null)
+  const [rerunMenuOpen, setRerunMenuOpen] = useState(false)
+  const [editingUserMessageId, setEditingUserMessageId] = useState<string | null>(null)
+  const [editDraft, setEditDraft] = useState('')
 
   // Workings panel data for current response
   const [workings, setWorkings] = useState<WorkingsData>({
@@ -46,15 +61,36 @@ export function ChatView() {
     model: undefined
   })
 
-  // Set default provider/model from first available
+  // Sync provider/model UI from the active chat (and persist defaults onto new chats)
   useEffect(() => {
-    if (!selectedProvider && llmProviders.length > 0) {
-      setSelectedProvider(llmProviders[0].id)
-      if (llmProviders[0].models.length > 0) {
-        setSelectedModel(llmProviders[0].models[0])
+    if (!activeChatId || !activeChat) return
+    const p = llmProviders.find((x) => x.id === activeChat.providerId)
+    if (activeChat.providerId && p) {
+      setSelectedProvider(activeChat.providerId)
+      if (activeChat.modelId && p.models.includes(activeChat.modelId)) {
+        setSelectedModel(activeChat.modelId)
+      } else if (p.models.length > 0) {
+        const mid = p.models[0]
+        setSelectedModel(mid)
+        if (activeChat.modelId !== mid) updateChat(activeChatId, { modelId: mid })
       }
+      return
     }
-  }, [llmProviders, selectedProvider])
+    if (llmProviders.length > 0) {
+      const first = llmProviders[0]
+      const mid = first.models[0] ?? ''
+      setSelectedProvider(first.id)
+      setSelectedModel(mid)
+      updateChat(activeChatId, { providerId: first.id, modelId: mid })
+    }
+  }, [
+    activeChatId,
+    activeChat?.providerId,
+    activeChat?.modelId,
+    activeChat,
+    llmProviders,
+    updateChat
+  ])
 
   const currentProvider = llmProviders.find((p) => p.id === selectedProvider)
   const availableModels = currentProvider?.models ?? []
@@ -63,6 +99,23 @@ export function ChatView() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [activeChat?.messages])
+
+  useEffect(() => {
+    setEditingUserMessageId(null)
+    setEditDraft('')
+    setRerunMenuOpen(false)
+  }, [activeChatId])
+
+  useEffect(() => {
+    if (!rerunMenuOpen) return
+    const onDown = (e: MouseEvent) => {
+      if (rerunMenuRef.current && !rerunMenuRef.current.contains(e.target as Node)) {
+        setRerunMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [rerunMenuOpen])
 
   // Listen for streaming events
   useEffect(() => {
@@ -151,17 +204,150 @@ export function ChatView() {
         }
       }
     })
-    return cleanup
+    return () => {
+      cleanup()
+    }
   }, [activeChatId])
 
-  const handleSend = useCallback(async () => {
-    if (!input.trim() || !activeChatId || isStreaming) return
+  const submitUserTurn = useCallback(
+    async (
+      userText: string,
+      assistantMsgId: string,
+      priorMessagesForApi: Array<{ role: string; content: string }>
+    ) => {
+      if (!activeChatId || !selectedProvider || !selectedModel) return
+      const chat = useChatStore.getState().chats.find((c) => c.id === activeChatId)
+      const prov = useSettingsStore.getState().llmProviders.find((p) => p.id === selectedProvider)
+      setIsStreaming(true)
+      setWorkings({
+        reasoning: '',
+        toolCalls: [],
+        usage: undefined,
+        model: `${prov?.name} / ${selectedModel}`
+      })
+      try {
+        await window.api.chatSend(activeChatId, userText, {
+          providerId: selectedProvider,
+          modelId: selectedModel,
+          mcpToolsMode: chat?.mcpToolsMode ?? 'all',
+          enabledTools: chat?.enabledTools ?? [],
+          messages: priorMessagesForApi,
+          messageId: assistantMsgId
+        })
+      } catch (err) {
+        logUiError('ChatView.chatSend', err, { chatId: activeChatId })
+        setIsStreaming(false)
+      }
+    },
+    [activeChatId, selectedProvider, selectedModel]
+  )
+
+  const handleRerunLast = useCallback(async () => {
+    if (!activeChatId || isStreaming || !selectedProvider || !selectedModel) return
+    setRerunMenuOpen(false)
+    const chat = useChatStore.getState().chats.find((c) => c.id === activeChatId)
+    const msgs = chat?.messages ?? []
+    if (msgs.length === 0) return
+
+    const last = msgs[msgs.length - 1]
+    const modelLabel = `${currentProvider?.name}/${selectedModel}`
+
+    if (last.role === 'assistant') {
+      let userIdx = -1
+      for (let i = msgs.length - 2; i >= 0; i--) {
+        if (msgs[i].role === 'user') {
+          userIdx = i
+          break
+        }
+      }
+      if (userIdx < 0) return
+      const userMsg = msgs[userIdx]
+      const prior = buildPriorForApi(msgs, userIdx)
+      updateMessage(activeChatId, last.id, {
+        content: '',
+        reasoning: undefined,
+        model: modelLabel,
+        tokenUsage: undefined,
+        toolCalls: undefined
+      })
+      await submitUserTurn(userMsg.content, last.id, prior)
+      return
+    }
+
+    if (last.role === 'user') {
+      const assistantMsgId = `msg-${Date.now()}`
+      const assistantMsg: Message = {
+        id: assistantMsgId,
+        role: 'assistant',
+        content: '',
+        model: modelLabel,
+        timestamp: Date.now()
+      }
+      addMessage(activeChatId, assistantMsg)
+      const prior = buildPriorForApi(msgs, msgs.length - 1)
+      await submitUserTurn(last.content, assistantMsgId, prior)
+    }
+  }, [
+    activeChatId,
+    isStreaming,
+    selectedProvider,
+    selectedModel,
+    currentProvider,
+    updateMessage,
+    addMessage,
+    submitUserTurn
+  ])
+
+  const handleSaveEditedUser = useCallback(async () => {
+    if (!activeChatId || !editingUserMessageId || isStreaming) return
+    const text = editDraft.trim()
+    if (!text) return
     if (!selectedProvider || !selectedModel) return
+
+    const chat = useChatStore.getState().chats.find((c) => c.id === activeChatId)
+    const msgs = chat?.messages ?? []
+    const idx = msgs.findIndex((m) => m.id === editingUserMessageId)
+    if (idx < 0 || msgs[idx].role !== 'user') return
+
+    const modelLabel = `${currentProvider?.name}/${selectedModel}`
+    const truncated = msgs.slice(0, idx + 1).map((m) =>
+      m.id === editingUserMessageId ? { ...m, content: text } : m
+    )
+    const assistantMsgId = `msg-${Date.now()}`
+    const assistantMsg: Message = {
+      id: assistantMsgId,
+      role: 'assistant',
+      content: '',
+      model: modelLabel,
+      timestamp: Date.now()
+    }
+    replaceChatMessages(activeChatId, [...truncated, assistantMsg])
+    setEditingUserMessageId(null)
+    setEditDraft('')
+    await submitUserTurn(text, assistantMsgId, buildPriorForApi(truncated, idx))
+  }, [
+    activeChatId,
+    editingUserMessageId,
+    editDraft,
+    isStreaming,
+    selectedProvider,
+    selectedModel,
+    currentProvider,
+    replaceChatMessages,
+    submitUserTurn
+  ])
+
+  const handleSend = useCallback(async () => {
+    if (!input.trim() || !activeChatId || !activeChat || isStreaming) return
+    if (!selectedProvider || !selectedModel) return
+
+    const userText = input.trim()
+    const priorForApi = buildPriorForApi(activeChat.messages, activeChat.messages.length)
 
     const userMsg: Message = {
       id: `msg-${Date.now()}-user`,
       role: 'user',
-      content: input.trim(),
+      content: userText,
       timestamp: Date.now()
     }
     addMessage(activeChatId, userMsg)
@@ -177,33 +363,18 @@ export function ChatView() {
     addMessage(activeChatId, assistantMsg)
 
     setInput('')
-    setIsStreaming(true)
-    setWorkings({
-      reasoning: '',
-      toolCalls: [],
-      usage: undefined,
-      model: `${currentProvider?.name} / ${selectedModel}`
-    })
-
-    const currentChat = useChatStore.getState().chats.find((c) => c.id === activeChatId)
-    const historyMessages = (currentChat?.messages ?? [])
-      .filter((m) => m.role === 'user' || m.role === 'assistant')
-      .slice(0, -1) // exclude the assistant placeholder we just added
-      .map((m) => ({ role: m.role, content: m.content }))
-
-    try {
-      await window.api.chatSend(activeChatId, input.trim(), {
-        providerId: selectedProvider,
-        modelId: selectedModel,
-        enabledTools: activeChat?.enabledTools ?? [],
-        messages: historyMessages,
-        messageId: assistantMsgId
-      })
-    } catch (err) {
-      logUiError('ChatView.chatSend', err, { chatId: activeChatId })
-      setIsStreaming(false)
-    }
-  }, [input, activeChatId, isStreaming, selectedProvider, selectedModel, activeChat, addMessage, currentProvider])
+    await submitUserTurn(userText, assistantMsgId, priorForApi)
+  }, [
+    input,
+    activeChatId,
+    activeChat,
+    isStreaming,
+    selectedProvider,
+    selectedModel,
+    addMessage,
+    currentProvider,
+    submitUserTurn
+  ])
 
   const handleStop = useCallback(() => {
     if (activeChatId) {
@@ -239,9 +410,73 @@ export function ChatView() {
             </div>
           ) : (
             <div className="mx-auto max-w-3xl space-y-4 pb-4">
-              {activeChat.messages.map((msg) => (
-                <MessageBubble key={msg.id} message={msg} />
-              ))}
+              {activeChat.messages.map((msg, idx) => {
+                const isLast = idx === activeChat.messages.length - 1
+                return (
+                  <div key={msg.id} className="space-y-1">
+                    <MessageBubble
+                      message={msg}
+                      isEditing={editingUserMessageId === msg.id}
+                      editDraft={editDraft}
+                      onEditDraftChange={setEditDraft}
+                      onStartEdit={() => {
+                        if (isStreaming) return
+                        setRerunMenuOpen(false)
+                        setEditingUserMessageId(msg.id)
+                        setEditDraft(msg.content)
+                      }}
+                      onCancelEdit={() => {
+                        setEditingUserMessageId(null)
+                        setEditDraft('')
+                      }}
+                      onSaveEdit={handleSaveEditedUser}
+                      editDisabled={isStreaming}
+                    />
+                    {isLast && !isStreaming && (
+                      <div
+                        ref={rerunMenuRef}
+                        className={cn(
+                          'flex justify-center pt-0.5',
+                          msg.role === 'user' ? 'pr-10' : 'pl-10'
+                        )}
+                      >
+                        <div className="relative">
+                          <button
+                            type="button"
+                            disabled={!selectedProvider || !selectedModel}
+                            onClick={() => setRerunMenuOpen((o) => !o)}
+                            className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-40"
+                            title="Rerun last turn (uses provider, model, and MCP settings above)"
+                          >
+                            <MoreHorizontal className="size-3.5" />
+                            Rerun
+                            <ChevronDown
+                              className={cn('size-3 transition-transform', rerunMenuOpen && 'rotate-180')}
+                            />
+                          </button>
+                          {rerunMenuOpen && (
+                            <div className="absolute left-1/2 top-full z-20 mt-1 w-56 -translate-x-1/2 rounded-md border border-border bg-popover py-1 shadow-md">
+                              <button
+                                type="button"
+                                onClick={() => void handleRerunLast()}
+                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-accent"
+                              >
+                                <RotateCcw className="size-3.5 shrink-0 opacity-70" />
+                                <span>
+                                  Regenerate last response
+                                  <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
+                                    Adjust model or MCP tools above first if needed.
+                                  </span>
+                                </span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
               <div ref={messagesEndRef} />
             </div>
           )}
@@ -255,9 +490,12 @@ export function ChatView() {
               <select
                 value={selectedProvider}
                 onChange={(e) => {
-                  setSelectedProvider(e.target.value)
-                  const prov = llmProviders.find((p) => p.id === e.target.value)
-                  if (prov?.models.length) setSelectedModel(prov.models[0])
+                  const pid = e.target.value
+                  setSelectedProvider(pid)
+                  const prov = llmProviders.find((p) => p.id === pid)
+                  const mid = prov?.models[0] ?? ''
+                  if (prov?.models.length) setSelectedModel(mid)
+                  if (activeChatId) updateChat(activeChatId, { providerId: pid, modelId: mid })
                 }}
                 className="rounded-md border border-input bg-background px-2 py-1 text-xs outline-none"
               >
@@ -272,7 +510,11 @@ export function ChatView() {
               {availableModels.length > 0 && (
                 <select
                   value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value)}
+                  onChange={(e) => {
+                    const mid = e.target.value
+                    setSelectedModel(mid)
+                    if (activeChatId) updateChat(activeChatId, { modelId: mid })
+                  }}
                   className="rounded-md border border-input bg-background px-2 py-1 text-xs outline-none"
                 >
                   {availableModels.map((m) => (
@@ -286,6 +528,7 @@ export function ChatView() {
               <div className="flex-1" />
 
               <button
+                type="button"
                 onClick={toggleWorkingsPanel}
                 className={cn(
                   'inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors',
@@ -294,34 +537,12 @@ export function ChatView() {
                     : 'text-muted-foreground hover:bg-accent'
                 )}
               >
-                <SlidersHorizontal className="size-3" /> Workings
+                <SlidersHorizontal className="size-3" /> Panel
               </button>
             </div>
 
             {/* Input row */}
             <div className="relative flex items-end gap-2 rounded-xl border border-input bg-card p-2">
-              {/* Tool picker button */}
-              <div className="relative">
-                <button
-                  onClick={() => setToolPickerOpen(!toolPickerOpen)}
-                  className={cn(
-                    'rounded-lg p-1.5 transition-colors',
-                    toolPickerOpen || (activeChat.enabledTools.length > 0)
-                      ? 'bg-accent text-accent-foreground'
-                      : 'text-muted-foreground hover:bg-accent'
-                  )}
-                  title="Select MCP tools"
-                >
-                  <Wrench className="size-4" />
-                </button>
-                <ToolPicker
-                  enabledTools={activeChat.enabledTools}
-                  onChange={(tools) => setEnabledTools(activeChatId!, tools)}
-                  open={toolPickerOpen}
-                  onClose={() => setToolPickerOpen(false)}
-                />
-              </div>
-
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -365,11 +586,13 @@ export function ChatView() {
               )}
             </div>
 
-            {activeChat.enabledTools.length > 0 && (
-              <p className="mt-1 text-[10px] text-muted-foreground">
-                {activeChat.enabledTools.length} tool(s) enabled
-              </p>
-            )}
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              {activeChat.mcpToolsMode === 'all'
+                ? 'MCP tools: all connected servers'
+                : activeChat.enabledTools.length > 0
+                  ? `MCP tools: ${activeChat.enabledTools.length} selected (side panel)`
+                  : 'MCP tools: none (side panel)'}
+            </p>
           </div>
         </div>
       </div>
@@ -379,12 +602,34 @@ export function ChatView() {
         data={workings}
         open={workingsPanelOpen}
         onClose={toggleWorkingsPanel}
+        mcpToolsMode={activeChat.mcpToolsMode}
+        enabledTools={activeChat.enabledTools}
+        onMcpModeChange={(mode) => setMcpToolsMode(activeChat.id, mode)}
+        onMcpToolsChange={(tools) => setEnabledTools(activeChat.id, tools)}
       />
     </div>
   )
 }
 
-function MessageBubble({ message }: { message: Message }) {
+function MessageBubble({
+  message,
+  isEditing,
+  editDraft,
+  onEditDraftChange,
+  onStartEdit,
+  onCancelEdit,
+  onSaveEdit,
+  editDisabled
+}: {
+  message: Message
+  isEditing: boolean
+  editDraft: string
+  onEditDraftChange: (v: string) => void
+  onStartEdit: () => void
+  onCancelEdit: () => void
+  onSaveEdit: () => void
+  editDisabled: boolean
+}) {
   const isUser = message.role === 'user'
 
   return (
@@ -405,8 +650,52 @@ function MessageBubble({ message }: { message: Message }) {
         {!isUser && message.reasoning && (
           <ReasoningCollapsible text={message.reasoning} />
         )}
-        <p className="text-sm whitespace-pre-wrap">{message.content || (isUser ? '' : '...')}</p>
-        {message.model && (
+        {isUser && isEditing ? (
+          <div className="flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
+            <textarea
+              value={editDraft}
+              onChange={(e) => onEditDraftChange(e.target.value)}
+              rows={3}
+              className="w-full min-w-[240px] resize-y rounded-lg border border-primary-foreground/30 bg-primary-foreground/10 px-2 py-1.5 text-sm text-primary-foreground placeholder:text-primary-foreground/50 outline-none focus:ring-1 focus:ring-primary-foreground/40"
+            />
+            <div className="flex justify-end gap-1.5">
+              <button
+                type="button"
+                onClick={onCancelEdit}
+                className="rounded-md px-2 py-1 text-[11px] text-primary-foreground/80 hover:bg-primary-foreground/15"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void onSaveEdit()}
+                disabled={!editDraft.trim()}
+                className="rounded-md bg-primary-foreground/20 px-2 py-1 text-[11px] font-medium hover:bg-primary-foreground/30 disabled:opacity-40"
+              >
+                Save & rerun
+              </button>
+            </div>
+          </div>
+        ) : message.content ? (
+          <ChatMarkdown content={message.content} variant={isUser ? 'user' : 'assistant'} />
+        ) : !isUser ? (
+          <p className="text-sm text-muted-foreground">...</p>
+        ) : null}
+        {isUser && !isEditing && (
+          <div className="mt-2 flex justify-end border-t border-primary-foreground/20 pt-2">
+            <button
+              type="button"
+              disabled={editDisabled}
+              onClick={onStartEdit}
+              className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] text-primary-foreground/85 transition-colors hover:bg-primary-foreground/15 disabled:opacity-40"
+              title="Edit and rerun from this message"
+            >
+              <Pencil className="size-3" />
+              Edit
+            </button>
+          </div>
+        )}
+        {message.model && !isEditing && (
           <p className="mt-1 text-[10px] opacity-60">{message.model}</p>
         )}
       </div>
