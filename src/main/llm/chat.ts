@@ -30,7 +30,7 @@ function clipForChatUi(full: string): string {
 }
 
 export interface ChatStreamEvent {
-  type: 'text-delta' | 'reasoning-delta' | 'tool-call-start' | 'tool-call-result' | 'tool-selection' | 'usage' | 'error' | 'finish'
+  type: 'text-delta' | 'reasoning-delta' | 'tool-call-start' | 'tool-call-result' | 'tool-selection' | 'usage' | 'durations' | 'error' | 'finish'
   chatId: string
   messageId: string
   data?: unknown
@@ -68,6 +68,19 @@ export async function handleChatSend(
   }
 
   try {
+    const overallStart = Date.now()
+    let toolSelectionMs: number | undefined
+    let reasoningFirstAt: number | undefined
+    let reasoningLastAt: number | undefined
+    let textFirstAt: number | undefined
+    let textLastAt: number | undefined
+    let firstTokenAt: number | undefined
+    let totalToolCallsMs = 0
+
+    const markFirstToken = () => {
+      if (firstTokenAt === undefined) firstTokenAt = Date.now()
+    }
+
     const mode = options.mcpToolsMode ?? 'all'
     let selection: McpToolsSelection
 
@@ -76,6 +89,7 @@ export async function handleChatSend(
         ...DEFAULT_TOOL_SELECTION_CONFIG,
         ...options.toolSelectionConfig
       }
+      const tsStart = Date.now()
       const result = await resolveToolSelection({
         mode,
         config: tsConfig,
@@ -84,6 +98,7 @@ export async function handleChatSend(
         currentMessage: message,
         signal: abortController.signal
       })
+      toolSelectionMs = Date.now() - tsStart
 
       broadcast({ type: 'tool-selection', chatId, messageId, data: result.trace })
 
@@ -135,7 +150,6 @@ export async function handleChatSend(
 
         const choice = chunk.choices[0]
 
-        // Usage arrives in the final chunk (when stream_options.include_usage is set)
         if (chunk.usage) {
           totalInputTokens += chunk.usage.prompt_tokens ?? 0
           totalOutputTokens += chunk.usage.completion_tokens ?? 0
@@ -144,30 +158,43 @@ export async function handleChatSend(
         if (!choice) continue
         const delta = choice.delta
 
-        // Native reasoning (o-series models)
         const reasoningContent = (delta as Record<string, unknown>).reasoning_content
         if (typeof reasoningContent === 'string' && reasoningContent) {
+          const now = Date.now()
+          markFirstToken()
+          if (reasoningFirstAt === undefined) reasoningFirstAt = now
+          reasoningLastAt = now
           broadcast({ type: 'reasoning-delta', chatId, messageId, data: reasoningContent })
         }
 
-        // Text content (with think-tag extraction on the first step)
         if (delta.content) {
           if (thinkParser) {
             const { text, reasoning } = thinkParser.push(delta.content)
             if (reasoning) {
+              const now = Date.now()
+              markFirstToken()
+              if (reasoningFirstAt === undefined) reasoningFirstAt = now
+              reasoningLastAt = now
               broadcast({ type: 'reasoning-delta', chatId, messageId, data: reasoning })
             }
             if (text) {
+              const now = Date.now()
+              markFirstToken()
+              if (textFirstAt === undefined) textFirstAt = now
+              textLastAt = now
               broadcast({ type: 'text-delta', chatId, messageId, data: text })
               assistantContent += text
             }
           } else {
+            const now = Date.now()
+            markFirstToken()
+            if (textFirstAt === undefined) textFirstAt = now
+            textLastAt = now
             broadcast({ type: 'text-delta', chatId, messageId, data: delta.content })
             assistantContent += delta.content
           }
         }
 
-        // Tool call deltas
         if (delta.tool_calls) {
           for (const tc of delta.tool_calls) {
             accumulator.feed(tc)
@@ -175,22 +202,30 @@ export async function handleChatSend(
         }
       }
 
-      // Flush any remaining buffered think-tag content
       if (thinkParser) {
         const { text, reasoning } = thinkParser.flush()
-        if (reasoning) broadcast({ type: 'reasoning-delta', chatId, messageId, data: reasoning })
+        if (reasoning) {
+          const now = Date.now()
+          markFirstToken()
+          if (reasoningFirstAt === undefined) reasoningFirstAt = now
+          reasoningLastAt = now
+          broadcast({ type: 'reasoning-delta', chatId, messageId, data: reasoning })
+        }
         if (text) {
+          const now = Date.now()
+          markFirstToken()
+          if (textFirstAt === undefined) textFirstAt = now
+          textLastAt = now
           broadcast({ type: 'text-delta', chatId, messageId, data: text })
           assistantContent += text
         }
       }
 
-      // If no tool calls were made, we're done
       const toolCalls = accumulator.getAll()
       if (toolCalls.length === 0) break
 
-      // Execute tool calls and broadcast events
       const toolResults: Array<{ toolCallId: string; content: string }> = []
+      const stepToolsStart = Date.now()
 
       for (const call of toolCalls) {
         if (abortController.signal.aborted) break
@@ -209,6 +244,7 @@ export async function handleChatSend(
           data: { toolCallId: call.id, toolName: call.name, args }
         })
 
+        const callStart = Date.now()
         try {
           const { toolCallId, toolName, result, content } = await executeToolCall(
             call,
@@ -221,7 +257,7 @@ export async function handleChatSend(
             type: 'tool-call-result',
             chatId,
             messageId,
-            data: { toolCallId, toolName, result }
+            data: { toolCallId, toolName, result, durationMs: Date.now() - callStart }
           })
         } catch (err) {
           if (abortController.signal.aborted) break
@@ -232,18 +268,18 @@ export async function handleChatSend(
             type: 'tool-call-result',
             chatId,
             messageId,
-            data: { toolCallId: call.id, toolName: call.name, result: `Error: ${errMsg}` }
+            data: { toolCallId: call.id, toolName: call.name, result: `Error: ${errMsg}`, durationMs: Date.now() - callStart }
           })
         }
       }
 
-      // Thread tool results into the conversation for the next iteration
+      totalToolCallsMs += Date.now() - stepToolsStart
+
       const threadMsgs = buildToolResultMessages(toolCalls, toolResults, assistantContent)
       messages.push(...threadMsgs)
       assistantContent = ''
     }
 
-    // Broadcast usage
     broadcast({
       type: 'usage',
       chatId,
@@ -252,6 +288,26 @@ export async function handleChatSend(
         promptTokens: totalInputTokens,
         completionTokens: totalOutputTokens,
         totalTokens: totalInputTokens + totalOutputTokens
+      }
+    })
+
+    broadcast({
+      type: 'durations',
+      chatId,
+      messageId,
+      data: {
+        totalMs: Date.now() - overallStart,
+        ...(toolSelectionMs !== undefined ? { toolSelectionMs } : {}),
+        ...(reasoningFirstAt !== undefined && reasoningLastAt !== undefined
+          ? { reasoningMs: reasoningLastAt - reasoningFirstAt }
+          : {}),
+        ...(textFirstAt !== undefined && textLastAt !== undefined
+          ? { generationMs: textLastAt - textFirstAt }
+          : {}),
+        toolCallsMs: totalToolCallsMs,
+        ...(firstTokenAt !== undefined
+          ? { firstTokenMs: firstTokenAt - overallStart }
+          : {})
       }
     })
 

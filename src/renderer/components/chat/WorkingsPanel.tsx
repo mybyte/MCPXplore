@@ -8,11 +8,12 @@ import {
   X,
   Cpu,
   MessageSquare,
-  SearchIcon
+  SearchIcon,
+  Timer
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { McpToolSettings, type McpToolSettingsProps } from './McpToolSettings'
-import type { McpToolsMode, ToolSelectionConfig } from '@/stores/chatStore'
+import type { McpToolsMode, ToolSelectionConfig, MessageDurations } from '@/stores/chatStore'
 
 export interface ToolSearchTraceItem {
   serverId: string
@@ -49,8 +50,10 @@ export interface WorkingsData {
     status: 'pending' | 'success' | 'error'
     startTime?: number
     endTime?: number
+    durationMs?: number
   }>
   usage?: { promptTokens: number; completionTokens: number; totalTokens: number }
+  durations?: MessageDurations
   model?: string
   toolSearchTrace?: ToolSearchTrace
 }
@@ -171,7 +174,7 @@ export function WorkingsPanel({
 
 function WorkingsReplyTab({ data }: { data: WorkingsData }) {
   const hasContent =
-    data.reasoning || data.toolCalls.length > 0 || data.usage || data.model || data.toolSearchTrace
+    data.reasoning || data.toolCalls.length > 0 || data.usage || data.durations || data.model || data.toolSearchTrace
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3">
@@ -191,6 +194,8 @@ function WorkingsReplyTab({ data }: { data: WorkingsData }) {
             <span className="text-[11px] text-muted-foreground">{data.model}</span>
           </div>
         )}
+
+        {data.durations && <DurationsSection durations={data.durations} />}
 
         {data.toolSearchTrace && <ToolSearchSection trace={data.toolSearchTrace} />}
 
@@ -364,7 +369,7 @@ function ToolCallSection({
 }) {
   const [expanded, setExpanded] = useState(true)
   const duration =
-    toolCall.startTime && toolCall.endTime ? toolCall.endTime - toolCall.startTime : undefined
+    toolCall.durationMs ?? (toolCall.startTime && toolCall.endTime ? toolCall.endTime - toolCall.startTime : undefined)
 
   return (
     <div
@@ -435,6 +440,50 @@ function UsageSection({ usage }: { usage: NonNullable<WorkingsData['usage']> }) 
           <p className="text-[10px] text-muted-foreground">Total</p>
           <p className="text-xs font-mono">{(usage.totalTokens ?? 0).toLocaleString()}</p>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function fmtMs(ms: number): string {
+  if (ms < 1000) return `${ms}ms`
+  return `${(ms / 1000).toFixed(2)}s`
+}
+
+function DurationsSection({ durations }: { durations: MessageDurations }) {
+  const items: Array<{ label: string; value: string; accent?: string }> = []
+
+  items.push({ label: 'End-to-end', value: fmtMs(durations.totalMs), accent: 'text-foreground font-semibold' })
+
+  if (durations.firstTokenMs !== undefined) {
+    items.push({ label: 'Time to first token', value: fmtMs(durations.firstTokenMs) })
+  }
+  if (durations.toolSelectionMs !== undefined) {
+    items.push({ label: 'Tool selection', value: fmtMs(durations.toolSelectionMs) })
+  }
+  if (durations.reasoningMs !== undefined) {
+    items.push({ label: 'Reasoning', value: fmtMs(durations.reasoningMs) })
+  }
+  if (durations.generationMs !== undefined) {
+    items.push({ label: 'Text generation', value: fmtMs(durations.generationMs) })
+  }
+  if (durations.toolCallsMs > 0) {
+    items.push({ label: 'Tool calls', value: fmtMs(durations.toolCallsMs) })
+  }
+
+  return (
+    <div className="rounded-md border border-border px-2.5 py-2">
+      <div className="mb-1.5 flex items-center gap-2">
+        <Timer className="size-3 text-amber-500" />
+        <span className="text-xs font-medium">Durations</span>
+      </div>
+      <div className="space-y-1">
+        {items.map((item) => (
+          <div key={item.label} className="flex items-center justify-between gap-2">
+            <span className="text-[10px] text-muted-foreground">{item.label}</span>
+            <span className={cn('text-[11px] font-mono tabular-nums', item.accent ?? 'text-foreground')}>{item.value}</span>
+          </div>
+        ))}
       </div>
     </div>
   )
