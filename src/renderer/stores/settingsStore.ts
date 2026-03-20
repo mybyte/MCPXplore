@@ -28,6 +28,8 @@ export interface McpServerConfig {
   args?: string[]
   url?: string
   env?: Record<string, string>
+  /** Seconds between automatic re-fetches of tools/resources/prompts. 0 or undefined = disabled. */
+  refreshInterval?: number
 }
 
 export interface MongoSettings {

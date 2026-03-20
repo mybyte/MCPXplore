@@ -3,7 +3,13 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
 import type { McpServerConfig } from '../config/store'
-import type { McpToolInfo, McpResourceInfo, McpServerStatus } from './types'
+import type {
+  McpToolInfo,
+  McpResourceInfo,
+  McpResourceTemplateInfo,
+  McpPromptInfo,
+  McpServerStatus
+} from './types'
 
 /** Cursor-style configs often omit `transport`; infer like other MCP clients. */
 function normalizeMcpConfig(config: McpServerConfig): McpServerConfig {
@@ -21,6 +27,7 @@ interface ManagedServer {
   client: Client
   transport: StdioClientTransport | StreamableHTTPClientTransport | SSEClientTransport
   status: McpServerStatus
+  refreshTimer?: ReturnType<typeof setInterval>
 }
 
 class McpManager {
@@ -51,7 +58,9 @@ class McpManager {
       name: config.name,
       status: 'connecting',
       tools: [],
-      resources: []
+      resources: [],
+      resourceTemplates: [],
+      prompts: []
     }
 
     const client = new Client({ name: 'mcpxplore', version: '0.1.0' }, {})
@@ -86,12 +95,20 @@ class McpManager {
 
       await client.connect(transport)
 
-      const tools = await this.fetchTools(config.id, client)
-      const resources = await this.fetchResources(config.id, client)
+      const [tools, resources, resourceTemplates, prompts] = await Promise.all([
+        this.fetchTools(config.id, client),
+        this.fetchResources(config.id, client),
+        this.fetchResourceTemplates(config.id, client),
+        this.fetchPrompts(config.id, client)
+      ])
 
       status.status = 'connected'
       status.tools = tools
       status.resources = resources
+      status.resourceTemplates = resourceTemplates
+      status.prompts = prompts
+
+      this.startRefreshTimer(config.id)
       this.notifyStatus()
 
       return status
@@ -107,6 +124,8 @@ class McpManager {
     const server = this.servers.get(serverId)
     if (!server) return
 
+    this.clearRefreshTimer(serverId)
+
     try {
       await server.client.close()
     } catch {
@@ -115,8 +134,52 @@ class McpManager {
     server.status.status = 'disconnected'
     server.status.tools = []
     server.status.resources = []
+    server.status.resourceTemplates = []
+    server.status.prompts = []
     this.servers.delete(serverId)
     this.notifyStatus()
+  }
+
+  private startRefreshTimer(serverId: string): void {
+    const server = this.servers.get(serverId)
+    if (!server) return
+
+    this.clearRefreshTimer(serverId)
+
+    const intervalSec = server.config.refreshInterval
+    if (!intervalSec || intervalSec <= 0) return
+
+    server.refreshTimer = setInterval(() => {
+      this.refreshCapabilities(serverId).catch(() => {})
+    }, intervalSec * 1000)
+  }
+
+  private clearRefreshTimer(serverId: string): void {
+    const server = this.servers.get(serverId)
+    if (server?.refreshTimer) {
+      clearInterval(server.refreshTimer)
+      server.refreshTimer = undefined
+    }
+  }
+
+  async refreshCapabilities(serverId: string): Promise<McpServerStatus | null> {
+    const server = this.servers.get(serverId)
+    if (!server || server.status.status !== 'connected') return null
+
+    const [tools, resources, resourceTemplates, prompts] = await Promise.all([
+      this.fetchTools(serverId, server.client),
+      this.fetchResources(serverId, server.client),
+      this.fetchResourceTemplates(serverId, server.client),
+      this.fetchPrompts(serverId, server.client)
+    ])
+
+    server.status.tools = tools
+    server.status.resources = resources
+    server.status.resourceTemplates = resourceTemplates
+    server.status.prompts = prompts
+    this.notifyStatus()
+
+    return server.status
   }
 
   private async fetchTools(serverId: string, client: Client): Promise<McpToolInfo[]> {
@@ -141,6 +204,42 @@ class McpManager {
         name: resource.name,
         description: resource.description,
         mimeType: resource.mimeType,
+        serverId
+      }))
+    } catch {
+      return []
+    }
+  }
+
+  private async fetchResourceTemplates(
+    serverId: string,
+    client: Client
+  ): Promise<McpResourceTemplateInfo[]> {
+    try {
+      const result = await client.listResourceTemplates()
+      return (result.resourceTemplates ?? []).map((t) => ({
+        uriTemplate: t.uriTemplate,
+        name: t.name,
+        description: t.description,
+        mimeType: t.mimeType,
+        serverId
+      }))
+    } catch {
+      return []
+    }
+  }
+
+  private async fetchPrompts(serverId: string, client: Client): Promise<McpPromptInfo[]> {
+    try {
+      const result = await client.listPrompts()
+      return (result.prompts ?? []).map((p) => ({
+        name: p.name,
+        description: p.description,
+        arguments: p.arguments?.map((a) => ({
+          name: a.name,
+          description: a.description,
+          required: a.required
+        })),
         serverId
       }))
     } catch {
@@ -185,6 +284,31 @@ class McpManager {
     }
     const result = await server.client.readResource({ uri })
     return result
+  }
+
+  async listPrompts(serverId: string): Promise<McpPromptInfo[]> {
+    const server = this.servers.get(serverId)
+    if (!server || server.status.status !== 'connected') return []
+    return server.status.prompts
+  }
+
+  async getPrompt(
+    serverId: string,
+    name: string,
+    args: Record<string, string>
+  ): Promise<unknown> {
+    const server = this.servers.get(serverId)
+    if (!server || server.status.status !== 'connected') {
+      throw new Error(`Server ${serverId} is not connected`)
+    }
+    const result = await server.client.getPrompt({ name, arguments: args })
+    return result
+  }
+
+  async listResourceTemplates(serverId: string): Promise<McpResourceTemplateInfo[]> {
+    const server = this.servers.get(serverId)
+    if (!server || server.status.status !== 'connected') return []
+    return server.status.resourceTemplates
   }
 
   getClient(serverId: string): Client | undefined {

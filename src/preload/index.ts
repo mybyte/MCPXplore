@@ -23,12 +23,20 @@ const api = {
   mcpDisconnect: (serverId: string) => ipcRenderer.invoke('mcp:disconnect', serverId),
   mcpConnectAll: () => ipcRenderer.invoke('mcp:connectAll'),
   mcpGetStatuses: () => ipcRenderer.invoke('mcp:getStatuses'),
+  mcpReconnectSaved: () => ipcRenderer.invoke('mcp:reconnectSaved'),
+  mcpRefreshCapabilities: (serverId: string) =>
+    ipcRenderer.invoke('mcp:refreshCapabilities', serverId),
   mcpListTools: (serverId: string) => ipcRenderer.invoke('mcp:listTools', serverId),
   mcpCallTool: (serverId: string, toolName: string, args: Record<string, unknown>) =>
     ipcRenderer.invoke('mcp:callTool', serverId, toolName, args),
   mcpListResources: (serverId: string) => ipcRenderer.invoke('mcp:listResources', serverId),
   mcpReadResource: (serverId: string, uri: string) =>
     ipcRenderer.invoke('mcp:readResource', serverId, uri),
+  mcpListPrompts: (serverId: string) => ipcRenderer.invoke('mcp:listPrompts', serverId),
+  mcpGetPrompt: (serverId: string, name: string, args: Record<string, string>) =>
+    ipcRenderer.invoke('mcp:getPrompt', serverId, name, args),
+  mcpListResourceTemplates: (serverId: string) =>
+    ipcRenderer.invoke('mcp:listResourceTemplates', serverId),
 
   // LLM chat operations (wired in Phase 5)
   chatSend: (chatId: string, message: string, options: Record<string, unknown>) =>

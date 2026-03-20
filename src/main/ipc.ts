@@ -92,11 +92,19 @@ export function registerIpcHandlers(): void {
     const configs = store.get('mcpServers')
     const config = configs.find((s) => s.id === serverId)
     if (!config) throw new Error(`MCP server config not found: ${serverId}`)
-    return mcpManager.connect(config)
+    const result = await mcpManager.connect(config)
+    if (result.status === 'connected') {
+      const saved = new Set(store.get('connectedServerIds'))
+      saved.add(serverId)
+      store.set('connectedServerIds', [...saved])
+    }
+    return result
   })
 
   ipcMain.handle('mcp:disconnect', async (_event, serverId: string) => {
     await mcpManager.disconnect(serverId)
+    const saved = store.get('connectedServerIds').filter((id) => id !== serverId)
+    store.set('connectedServerIds', saved)
   })
 
   ipcMain.handle('mcp:listTools', async (_event, serverId: string) => {
@@ -115,6 +123,21 @@ export function registerIpcHandlers(): void {
     return mcpManager.readResource(serverId, uri)
   })
 
+  ipcMain.handle('mcp:listPrompts', async (_event, serverId: string) => {
+    return mcpManager.listPrompts(serverId)
+  })
+
+  ipcMain.handle(
+    'mcp:getPrompt',
+    async (_event, serverId: string, name: string, args: Record<string, string>) => {
+      return mcpManager.getPrompt(serverId, name, args)
+    }
+  )
+
+  ipcMain.handle('mcp:listResourceTemplates', async (_event, serverId: string) => {
+    return mcpManager.listResourceTemplates(serverId)
+  })
+
   ipcMain.handle('mcp:getStatuses', () => {
     return mcpManager.getAllStatuses()
   })
@@ -122,7 +145,34 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('mcp:connectAll', async () => {
     const configs = store.get('mcpServers')
     const results = await Promise.allSettled(configs.map((c) => mcpManager.connect(c)))
+    const connectedIds = results
+      .map((r, i) => (r.status === 'fulfilled' && r.value.status === 'connected' ? configs[i].id : null))
+      .filter((id): id is string => id !== null)
+    if (connectedIds.length > 0) {
+      const saved = new Set(store.get('connectedServerIds'))
+      connectedIds.forEach((id) => saved.add(id))
+      store.set('connectedServerIds', [...saved])
+    }
     return results.map((r) => (r.status === 'fulfilled' ? r.value : { error: String(r.reason) }))
+  })
+
+  ipcMain.handle('mcp:reconnectSaved', async () => {
+    const savedIds = new Set(store.get('connectedServerIds'))
+    if (savedIds.size === 0) return []
+    const configs = store.get('mcpServers').filter((c) => savedIds.has(c.id))
+    const results = await Promise.allSettled(configs.map((c) => mcpManager.connect(c)))
+    const stillConnected = configs
+      .filter((_, i) => {
+        const r = results[i]
+        return r.status === 'fulfilled' && r.value.status === 'connected'
+      })
+      .map((c) => c.id)
+    store.set('connectedServerIds', stillConnected)
+    return results.map((r) => (r.status === 'fulfilled' ? r.value : { error: String(r.reason) }))
+  })
+
+  ipcMain.handle('mcp:refreshCapabilities', async (_event, serverId: string) => {
+    return mcpManager.refreshCapabilities(serverId)
   })
 
   // ── LLM Chat ───────────────────────────────────────────────────────

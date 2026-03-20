@@ -50,7 +50,8 @@ function ServerForm({
           env[line.slice(0, eqIdx).trim()] = line.slice(eqIdx + 1).trim()
         }
       })
-    onSave({ ...form, args, env })
+    const refreshInterval = form.refreshInterval && form.refreshInterval > 0 ? form.refreshInterval : undefined
+    onSave({ ...form, args, env, refreshInterval })
   }
 
   const isRemote = form.transport === 'sse' || form.transport === 'streamable-http'
@@ -133,6 +134,26 @@ function ServerForm({
           placeholder="SOME_API_KEY=abc123"
           className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring resize-none font-mono"
         />
+      </label>
+
+      <label className="block space-y-1">
+        <span className="text-xs font-medium text-muted-foreground">
+          Refresh Interval (seconds)
+        </span>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min={0}
+            step={1}
+            value={form.refreshInterval ?? 0}
+            onChange={(e) => update({ refreshInterval: Math.max(0, parseInt(e.target.value) || 0) })}
+            placeholder="0"
+            className="w-32 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
+          />
+          <span className="text-xs text-muted-foreground">
+            0 = disabled. Periodically re-fetches tools, resources &amp; prompts.
+          </span>
+        </div>
       </label>
 
       <div className="flex justify-end gap-2 pt-1">
@@ -238,6 +259,11 @@ export function McpServerConfig() {
                       ? `${server.command} ${(server.args ?? []).join(' ')}`
                       : server.url}
                   </p>
+                  {server.refreshInterval && server.refreshInterval > 0 && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Refresh every {server.refreshInterval}s
+                    </p>
+                  )}
                 </div>
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button

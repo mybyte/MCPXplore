@@ -29,7 +29,9 @@ export function useConfigSync() {
           }
         }
 
-        // Load existing MCP statuses
+        // Reconnect servers that were connected in the previous session,
+        // then fetch the resulting statuses.
+        await window.api.mcpReconnectSaved().catch(() => {})
         const statuses = await window.api.mcpGetStatuses()
         if (Array.isArray(statuses)) {
           setMcpServers(statuses as McpServer[])

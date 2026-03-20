@@ -13,6 +13,8 @@ export interface AppConfig {
   mcpServers: McpServerConfig[]
   chats: ChatMeta[]
   mongo: MongoSettings
+  /** Server IDs that were connected when the app last ran — auto-reconnected on launch. */
+  connectedServerIds: string[]
 }
 
 export interface LlmProviderConfig {
@@ -43,6 +45,8 @@ export interface McpServerConfig {
   args?: string[]
   url?: string
   env?: Record<string, string>
+  /** Seconds between automatic re-fetches of tools/resources/prompts. 0 or undefined = disabled. */
+  refreshInterval?: number
 }
 
 export interface ChatMeta {
@@ -80,7 +84,8 @@ const DEFAULT_CONFIG: AppConfig = {
   embeddingsProviders: [],
   mcpServers: [],
   chats: [],
-  mongo: { connectionUri: '', chatDatabase: '' }
+  mongo: { connectionUri: '', chatDatabase: '' },
+  connectedServerIds: []
 }
 
 class ConfigStore {
@@ -106,6 +111,9 @@ class ConfigStore {
         parsed.mongo = {
           connectionUri: typeof m?.connectionUri === 'string' ? m.connectionUri : '',
           chatDatabase: typeof m?.chatDatabase === 'string' ? m.chatDatabase : ''
+        }
+        if (!Array.isArray(parsed.connectedServerIds)) {
+          parsed.connectedServerIds = []
         }
         return parsed
       }
