@@ -14,7 +14,7 @@ import {
   mongoSyncChats,
   mongoTestConnection
 } from './mongo/service'
-import { syncMcpServerTools } from './mongo/mcp-sync'
+import { pruneToolCatalogToConfiguredServers, syncMcpServerTools } from './mongo/mcp-sync'
 import {
   backfillToolEmbeddings,
   removeToolEmbeddingField,
@@ -26,6 +26,13 @@ import { updateToolsSearchIndex, bootstrapToolsCollection } from './mongo/search
 import { searchTools, searchToolsFacets, type ToolSearchParams } from './mongo/tool-search'
 
 const LOG_LEVELS = new Set(['error', 'warn', 'info', 'debug'])
+
+function toolsCatalogBootstrapAndPrune(cfgStore: ReturnType<typeof getConfigStore>): void {
+  void (async () => {
+    await bootstrapToolsCollection()
+    await pruneToolCatalogToConfiguredServers(cfgStore.get('mcpServers').map((s) => s.id))
+  })()
+}
 
 function logRendererEntry(raw: unknown): void {
   if (!raw || typeof raw !== 'object') return
@@ -142,7 +149,7 @@ export function registerIpcHandlers(): void {
     store.set('embeddingsProviders', merged)
   })
 
-  ipcMain.handle('config:mcpServers:set', (_event, servers: McpServerConfig[]) => {
+  ipcMain.handle('config:mcpServers:set', async (_event, servers: McpServerConfig[]) => {
     const existing = store.get('mcpServers')
     const merged = servers.map((s) => {
       if (s.env) {
@@ -156,8 +163,21 @@ export function registerIpcHandlers(): void {
       }
       return s
     })
+
+    const prevIds = new Set(existing.map((s) => s.id))
+    const nextIds = new Set(merged.map((s) => s.id))
+    for (const id of prevIds) {
+      if (!nextIds.has(id)) {
+        await mcpManager.disconnect(id)
+      }
+    }
+
     store.set('mcpServers', merged)
+    const connected = store.get('connectedServerIds').filter((id) => nextIds.has(id))
+    store.set('connectedServerIds', connected)
     mcpManager.applySavedServerConfigs(merged)
+
+    await pruneToolCatalogToConfiguredServers(merged.map((s) => s.id))
   })
 
   ipcMain.handle('toolEmbeddings:getBackfillStatuses', () => getAllBackfillStatuses())
@@ -196,7 +216,7 @@ export function registerIpcHandlers(): void {
       mongo = { ...mongo, connectionUri: existing.connectionUri }
     }
     store.set('mongo', mongo)
-    void bootstrapToolsCollection()
+    void toolsCatalogBootstrapAndPrune(store)
   })
 
   // ── MCP ────────────────────────────────────────────────────────────
@@ -393,6 +413,6 @@ export function registerIpcHandlers(): void {
     return searchToolsFacets()
   })
 
-  // Bootstrap tools collection + search index on startup if MongoDB is configured
-  void bootstrapToolsCollection()
+  // Bootstrap tools collection, search index, and drop catalog rows for unconfigured servers
+  void toolsCatalogBootstrapAndPrune(store)
 }

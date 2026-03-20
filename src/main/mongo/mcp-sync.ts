@@ -111,3 +111,36 @@ export async function syncMcpServerTools(
     await client?.close().catch(() => {})
   }
 }
+
+/**
+ * Remove tool catalog documents whose `serverId` is not in the configured MCP server list.
+ * Use when servers are deleted from settings and to fix historical orphans.
+ * With an empty `validServerIds`, deletes all catalog documents.
+ * Silently no-ops when MongoDB is not configured.
+ */
+export async function pruneToolCatalogToConfiguredServers(
+  validServerIds: string[]
+): Promise<void> {
+  const store = getConfigStore()
+  const { connectionUri, chatDatabase } = store.get('mongo')
+  if (!connectionUri?.trim() || !chatDatabase?.trim()) return
+
+  let client: MongoClient | undefined
+  try {
+    client = new MongoClient(connectionUri, { serverSelectionTimeoutMS: 12_000 })
+    await client.connect()
+    const coll = client.db(chatDatabase.trim()).collection<McpToolDoc>(TOOLS_COLLECTION)
+    const result = await coll.deleteMany({ serverId: { $nin: validServerIds } })
+    if (result.deletedCount > 0) {
+      console.info(
+        `[mongo] pruned ${result.deletedCount} tool catalog document(s) (not in configured MCP servers)`
+      )
+    }
+  } catch (err) {
+    console.warn(
+      `[mongo] pruneToolCatalogToConfiguredServers failed: ${err instanceof Error ? err.message : String(err)}`
+    )
+  } finally {
+    await client?.close().catch(() => {})
+  }
+}
