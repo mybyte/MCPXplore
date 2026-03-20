@@ -3,7 +3,7 @@ import { create } from 'zustand'
 export interface LlmProvider {
   id: string
   name: string
-  type: 'openai' | 'azure' | 'fireworks' | 'openrouter'
+  type: 'openai' | 'azure' | 'fireworks' | 'openrouter' | 'cerebras'
   baseUrl: string
   apiKey: string
   models: string[]

@@ -31,6 +31,12 @@ export function createClient(config: LlmProviderConfig | EmbeddingsProviderConfi
         }
       })
 
+    case 'cerebras':
+      return new OpenAI({
+        apiKey: config.apiKey,
+        baseURL: config.baseUrl || 'https://api.cerebras.ai/v1'
+      })
+
     case 'voyage':
       return new OpenAI({
         apiKey: config.apiKey,

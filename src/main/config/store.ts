@@ -22,7 +22,7 @@ export interface AppConfig {
 export interface LlmProviderConfig {
   id: string
   name: string
-  type: 'openai' | 'azure' | 'fireworks' | 'openrouter'
+  type: 'openai' | 'azure' | 'fireworks' | 'openrouter' | 'cerebras'
   baseUrl: string
   apiKey: string
   models: string[]

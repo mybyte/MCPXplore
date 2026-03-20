@@ -8,14 +8,16 @@ const PROVIDER_TYPES = [
   { value: 'openai', label: 'OpenAI' },
   { value: 'azure', label: 'Azure OpenAI' },
   { value: 'fireworks', label: 'Fireworks' },
-  { value: 'openrouter', label: 'OpenRouter' }
+  { value: 'openrouter', label: 'OpenRouter' },
+  { value: 'cerebras', label: 'Cerebras' }
 ] as const
 
 const DEFAULT_URLS: Record<string, string> = {
   openai: 'https://api.openai.com/v1',
   azure: '',
   fireworks: 'https://api.fireworks.ai/inference/v1',
-  openrouter: 'https://openrouter.ai/api/v1'
+  openrouter: 'https://openrouter.ai/api/v1',
+  cerebras: 'https://api.cerebras.ai/v1'
 }
 
 function ProviderForm({
@@ -124,7 +126,9 @@ function ProviderForm({
                 ? 'https://api.fireworks.ai/inference/v1'
                 : form.type === 'openrouter'
                   ? 'https://openrouter.ai/api/v1'
-                  : 'https://api.openai.com/v1'
+                  : form.type === 'cerebras'
+                    ? 'https://api.cerebras.ai/v1'
+                    : 'https://api.openai.com/v1'
           }
           className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
         />

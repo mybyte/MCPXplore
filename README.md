@@ -27,7 +27,7 @@ The core idea: connect to one or more MCP servers, browse everything they expose
 - **LLM chat with tool use** — stream responses from OpenAI-compatible providers while the model calls MCP tools mid-conversation. Stop generation at any time.
 - **Smart tool selection** — choose which tools the model sees: all tools, a manual pick list, semantic search (embedding similarity), or agentic mode (LLM-assisted tool discovery).
 - **MongoDB integration** (optional) — sync discovered MCP tools into a collection, build search/vector indexes for smart tool selection, and persist chat history across sessions.
-- **Multiple LLM & embedding providers** — configure OpenAI, Azure OpenAI, Fireworks, OpenRouter, Voyage, and more from the settings UI.
+- **Multiple LLM & embedding providers** — configure OpenAI, Azure OpenAI, Fireworks, OpenRouter, Cerebras, Voyage, and more from the settings UI.
 - **Capability change detection** — fingerprints server capabilities and reacts when tools, resources, or prompts change.
 - **Cross-platform** — builds for macOS (dmg), Windows (nsis), and Linux (AppImage/deb).
 

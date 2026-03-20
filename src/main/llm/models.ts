@@ -20,6 +20,7 @@ export async function fetchAvailableModels(req: FetchModelsRequest): Promise<str
     case 'openai':
     case 'azure':
     case 'openrouter':
+    case 'cerebras':
       return fetchViaOpenAISdk(req)
 
     case 'fireworks':
@@ -35,7 +36,7 @@ export async function fetchAvailableModels(req: FetchModelsRequest): Promise<str
 }
 
 /**
- * OpenAI, Azure, and OpenRouter all expose a standard /models endpoint
+ * OpenAI, Azure, OpenRouter, and Cerebras expose a standard /models endpoint
  * compatible with the OpenAI SDK's `client.models.list()`.
  */
 async function fetchViaOpenAISdk(req: FetchModelsRequest): Promise<string[]> {

@@ -31,6 +31,13 @@ export function formatApiError(err: unknown): string {
       lines.push(`Response body:\n${clipped}`)
     }
 
+    // Some providers (e.g. Cerebras) return 402 with no JSON body when billing/credits block usage.
+    if (err.status === 402) {
+      lines.push(
+        '402 means Payment Required: billing may be inactive, credits exhausted, or this key cannot run inference. Check your provider account (for Cerebras: cloud.cerebras.ai and the inference docs).'
+      )
+    }
+
     return lines.join('\n')
   }
 
