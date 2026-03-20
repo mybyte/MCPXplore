@@ -157,13 +157,18 @@ class McpManager {
   async callTool(
     serverId: string,
     toolName: string,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
+    options?: { signal?: AbortSignal }
   ): Promise<unknown> {
     const server = this.servers.get(serverId)
     if (!server || server.status.status !== 'connected') {
       throw new Error(`Server ${serverId} is not connected`)
     }
-    const result = await server.client.callTool({ name: toolName, arguments: args })
+    const result = await server.client.callTool(
+      { name: toolName, arguments: args },
+      undefined,
+      options?.signal ? { signal: options.signal } : undefined
+    )
     return result
   }
 

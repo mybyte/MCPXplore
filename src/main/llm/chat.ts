@@ -13,6 +13,12 @@ import { ThinkTagParser } from './reasoning'
 import { formatApiError } from './format-error'
 
 const MAX_TOOL_STEPS = 10
+
+/**
+ * One AbortController per in-flight chat turn, keyed by chatId.
+ * Aborting cancels the OpenAI stream *and* any pending MCP tool calls
+ * (the signal is threaded through executeToolCall → McpManager.callTool).
+ */
 const activeAbortControllers = new Map<string, AbortController>()
 
 const CHAT_ERROR_UI_MAX = 1200
@@ -154,6 +160,8 @@ export async function handleChatSend(
       const toolResults: Array<{ toolCallId: string; content: string }> = []
 
       for (const call of toolCalls) {
+        if (abortController.signal.aborted) break
+
         let args: Record<string, unknown>
         try {
           args = JSON.parse(call.arguments || '{}')
@@ -169,7 +177,11 @@ export async function handleChatSend(
         })
 
         try {
-          const { toolCallId, toolName, result, content } = await executeToolCall(call, serverMap)
+          const { toolCallId, toolName, result, content } = await executeToolCall(
+            call,
+            serverMap,
+            { signal: abortController.signal }
+          )
           toolResults.push({ toolCallId, content })
 
           broadcast({
@@ -179,6 +191,7 @@ export async function handleChatSend(
             data: { toolCallId, toolName, result }
           })
         } catch (err) {
+          if (abortController.signal.aborted) break
           const errMsg = err instanceof Error ? err.message : String(err)
           toolResults.push({ toolCallId: call.id, content: `Error: ${errMsg}` })
 
@@ -227,6 +240,7 @@ export async function handleChatSend(
   }
 }
 
+/** Abort a running chat turn. Safe to call even if no turn is active for the given chatId. */
 export function stopChat(chatId: string): void {
   const controller = activeAbortControllers.get(chatId)
   if (controller) {

@@ -1,3 +1,4 @@
+import { useState, useRef, useEffect } from 'react'
 import {
   MessageSquare,
   Blocks,
@@ -9,7 +10,9 @@ import {
   Circle,
   Sun,
   Moon,
-  Monitor
+  Monitor,
+  Check,
+  X
 } from 'lucide-react'
 import { useAppStore, type View } from '@/stores/appStore'
 import { useChatStore } from '@/stores/chatStore'
@@ -29,6 +32,23 @@ function ChatList() {
   const setActiveChat = useChatStore((s) => s.setActiveChat)
   const createChat = useChatStore((s) => s.createChat)
   const deleteChat = useChatStore((s) => s.deleteChat)
+  const updateChat = useChatStore((s) => s.updateChat)
+
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editValue, setEditValue] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (editingId) inputRef.current?.focus()
+  }, [editingId])
+
+  const commitRename = (chatId: string) => {
+    const trimmed = editValue.trim()
+    if (trimmed) updateChat(chatId, { title: trimmed })
+    setEditingId(null)
+  }
+
+  const cancelRename = () => setEditingId(null)
 
   return (
     <div className="flex flex-col gap-1">
@@ -50,13 +70,37 @@ function ChatList() {
           )}
           onClick={() => setActiveChat(chat.id)}
         >
-          <span className="truncate flex-1">{chat.title}</span>
+          {editingId === chat.id ? (
+            <input
+              ref={inputRef}
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitRename(chat.id)
+                if (e.key === 'Escape') cancelRename()
+              }}
+              onBlur={() => commitRename(chat.id)}
+              onClick={(e) => e.stopPropagation()}
+              className="flex-1 min-w-0 bg-transparent border-b border-foreground/30 text-sm outline-none py-0"
+            />
+          ) : (
+            <span
+              className="truncate flex-1"
+              onDoubleClick={(e) => {
+                e.stopPropagation()
+                setEditingId(chat.id)
+                setEditValue(chat.title)
+              }}
+            >
+              {chat.title}
+            </span>
+          )}
           <button
             onClick={(e) => {
               e.stopPropagation()
               deleteChat(chat.id)
             }}
-            className="opacity-0 group-hover:opacity-100 hover:text-destructive transition-opacity"
+            className="opacity-0 group-hover:opacity-100 hover:text-destructive transition-opacity shrink-0"
           >
             <Trash2 className="size-3.5" />
           </button>

@@ -352,6 +352,11 @@ export function ChatView() {
     }
     addMessage(activeChatId, userMsg)
 
+    if (activeChat.messages.length === 0) {
+      const autoTitle = userText.length > 100 ? userText.slice(0, 100) + '…' : userText
+      updateChat(activeChatId, { title: autoTitle })
+    }
+
     const assistantMsgId = `msg-${Date.now()}`
     const assistantMsg: Message = {
       id: assistantMsgId,
@@ -377,11 +382,23 @@ export function ChatView() {
   ])
 
   const handleStop = useCallback(() => {
-    if (activeChatId) {
+    if (activeChatId && isStreaming) {
       window.api.chatStop(activeChatId)
       setIsStreaming(false)
     }
-  }, [activeChatId])
+  }, [activeChatId, isStreaming])
+
+  useEffect(() => {
+    if (!isStreaming) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        handleStop()
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [isStreaming, handleStop])
 
   if (!activeChat) {
     return (

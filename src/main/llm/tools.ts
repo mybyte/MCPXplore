@@ -101,7 +101,8 @@ export class ToolCallAccumulator {
  */
 export async function executeToolCall(
   call: AccumulatedToolCall,
-  serverMap: Map<string, string>
+  serverMap: Map<string, string>,
+  options?: { signal?: AbortSignal }
 ): Promise<{ toolCallId: string; toolName: string; result: unknown; content: string }> {
   const serverId = serverMap.get(call.name)
   if (!serverId) throw new Error(`No MCP server found for tool "${call.name}"`)
@@ -114,7 +115,9 @@ export async function executeToolCall(
     args = {}
   }
 
-  const result = await mcpManager.callTool(serverId, call.name, args)
+  const result = await mcpManager.callTool(serverId, call.name, args, {
+    signal: options?.signal
+  })
   const content = typeof result === 'string' ? result : JSON.stringify(result)
 
   return { toolCallId: call.id, toolName: call.name, result, content }
