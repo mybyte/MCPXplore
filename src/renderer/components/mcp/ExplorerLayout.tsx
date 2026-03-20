@@ -223,7 +223,8 @@ function DetailPanel({
             tools: server.tools.map((t) => ({
               name: t.name,
               description: t.description,
-              inputSchema: t.inputSchema ?? null
+              inputSchema: t.inputSchema ?? null,
+              outputSchema: t.outputSchema ?? null
             })),
             resources: server.resources.map((r) => ({
               uri: r.uri,

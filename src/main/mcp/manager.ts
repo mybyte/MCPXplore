@@ -299,6 +299,7 @@ class McpManager {
       name: tool.name,
       description: tool.description,
       inputSchema: tool.inputSchema as Record<string, unknown>,
+      outputSchema: tool.outputSchema as Record<string, unknown> | undefined,
       serverId
     }))
   }

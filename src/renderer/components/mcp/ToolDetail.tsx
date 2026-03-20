@@ -127,7 +127,8 @@ function ToolDetailInner({
               data={{
                 name: tool.name,
                 description: tool.description,
-                inputSchema: tool.inputSchema ?? null
+                inputSchema: tool.inputSchema ?? null,
+                outputSchema: tool.outputSchema ?? null
               }}
             />
           </div>
