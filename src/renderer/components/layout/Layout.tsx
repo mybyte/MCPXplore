@@ -18,7 +18,7 @@ export function Layout() {
       )}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <Sidebar />
-        <main className="flex-1 overflow-hidden">
+        <main className="min-h-0 flex-1 overflow-hidden">
           {currentView === 'chat' && <ChatView />}
           {currentView === 'mcp-explorer' && <McpExplorer />}
           {currentView === 'settings' && <SettingsPanel />}

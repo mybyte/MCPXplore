@@ -10,6 +10,7 @@ import { ResourceDetail } from './ResourceDetail'
 import { PromptDetail } from './PromptDetail'
 import { CallHistory } from './CallHistory'
 import { ServerForm } from '@/components/settings/McpServerConfig'
+import { RawJsonDisclosure } from './RawJsonDisclosure'
 
 const MIN_RAIL_W = 140
 const MAX_RAIL_W = 280
@@ -22,6 +23,8 @@ type ConfigMode = null | { type: 'add' } | { type: 'edit'; serverId: string }
 
 export function ExplorerLayout() {
   const selection = useMcpStore((s) => s.selection)
+  const activeServerId = useMcpStore((s) => s.activeServerId)
+  const servers = useMcpStore((s) => s.servers)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [configMode, setConfigMode] = useState<ConfigMode>(null)
   const [railWidth, setRailWidth] = useState(DEFAULT_RAIL_W)
@@ -88,7 +91,7 @@ export function ExplorerLayout() {
   )
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       {/* Top bar */}
       <div className="flex items-center justify-between border-b border-border px-4 py-2">
         <div className="flex items-center gap-2">
@@ -177,8 +180,12 @@ export function ExplorerLayout() {
             />
 
             {/* Panel 3: Detail */}
-            <div className="flex-1 min-w-0 overflow-hidden">
-              <DetailPanel selection={selection} />
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+              <DetailPanel
+                selection={selection}
+                activeServerId={activeServerId}
+                servers={servers}
+              />
             </div>
           </>
         )}
@@ -198,15 +205,60 @@ export function ExplorerLayout() {
 }
 
 function DetailPanel({
-  selection
+  selection,
+  activeServerId,
+  servers
 }: {
   selection: ReturnType<typeof useMcpStore.getState>['selection']
+  activeServerId: string | null
+  servers: ReturnType<typeof useMcpStore.getState>['servers']
 }) {
   if (!selection) {
+    const server = activeServerId ? servers.find((s) => s.id === activeServerId) : null
+    const capabilitiesPayload =
+      server?.status === 'connected'
+        ? {
+            serverId: server.id,
+            serverName: server.name,
+            tools: server.tools.map((t) => ({
+              name: t.name,
+              description: t.description,
+              inputSchema: t.inputSchema ?? null
+            })),
+            resources: server.resources.map((r) => ({
+              uri: r.uri,
+              name: r.name,
+              description: r.description,
+              mimeType: r.mimeType
+            })),
+            resourceTemplates: server.resourceTemplates.map((t) => ({
+              uriTemplate: t.uriTemplate,
+              name: t.name,
+              description: t.description,
+              mimeType: t.mimeType
+            })),
+            prompts: server.prompts.map((p) => ({
+              name: p.name,
+              description: p.description,
+              arguments: p.arguments ?? []
+            }))
+          }
+        : null
+
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
-        <Blocks className="size-10 opacity-20" />
-        <p className="text-sm">Select a tool, resource, or prompt to inspect</p>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 text-muted-foreground">
+          <Blocks className="size-10 opacity-20" />
+          <p className="text-sm text-center">Select a tool, resource, or prompt to inspect</p>
+        </div>
+        {capabilitiesPayload && (
+          <div className="shrink-0 border-t border-border p-3">
+            <RawJsonDisclosure
+              title="Raw capabilities snapshot (last list from server)"
+              data={capabilitiesPayload}
+            />
+          </div>
+        )}
       </div>
     )
   }

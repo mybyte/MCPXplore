@@ -3,6 +3,7 @@ import { FileText, Download, Loader2 } from 'lucide-react'
 import { useMcpStore, type CallHistoryEntry } from '@/stores/mcpStore'
 import { logUiError } from '@/lib/rendererLog'
 import { OutputRenderer, type McpCallResult } from './OutputRenderer'
+import { RawJsonDisclosure } from './RawJsonDisclosure'
 
 export function ResourceDetail() {
   const selection = useMcpStore((s) => s.selection)
@@ -114,51 +115,64 @@ function ResourceInner({
   }, [serverId, resource.uri, resource.name, serverName, addHistoryEntry])
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="border-b border-border px-4 py-3">
-        <div className="flex items-center gap-2">
-          <FileText className="size-4 text-muted-foreground" />
-          <h3 className="font-mono text-sm font-semibold">{resource.name}</h3>
-        </div>
-        <p className="mt-1 font-mono text-[11px] text-muted-foreground">{resource.uri}</p>
-        {resource.description && (
-          <p className="mt-1 text-xs text-muted-foreground">{resource.description}</p>
-        )}
-        {resource.mimeType && (
-          <span className="inline-block mt-1 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-            {resource.mimeType}
-          </span>
-        )}
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        <button
-          onClick={handleFetch}
-          disabled={loading}
-          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
-        >
-          {loading ? (
-            <Loader2 className="size-3.5 animate-spin" />
-          ) : (
-            <Download className="size-3.5" />
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+        <div className="border-b border-border px-4 py-3">
+          <div className="flex items-center gap-2">
+            <FileText className="size-4 text-muted-foreground" />
+            <h3 className="font-mono text-sm font-semibold">{resource.name}</h3>
+          </div>
+          <p className="mt-1 font-mono text-[11px] text-muted-foreground break-all">{resource.uri}</p>
+          {resource.description && (
+            <p className="mt-1 text-xs text-muted-foreground break-words">{resource.description}</p>
           )}
-          {loading ? 'Fetching...' : 'Fetch'}
-        </button>
-
-        {(result || error) && (
-          <div className="border-t border-border pt-4">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
-              Content
-            </p>
-            <OutputRenderer
-              result={result}
-              error={error}
-              elapsed={elapsed}
-              serverName={serverName}
-              timestamp={timestamp}
+          {resource.mimeType && (
+            <span className="inline-block mt-1 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              {resource.mimeType}
+            </span>
+          )}
+          <div className="mt-3">
+            <RawJsonDisclosure
+              title="Raw resource (from server)"
+              data={{
+                uri: resource.uri,
+                name: resource.name,
+                description: resource.description,
+                mimeType: resource.mimeType
+              }}
             />
           </div>
-        )}
+        </div>
+
+        <div className="p-4 space-y-4">
+          <button
+            onClick={handleFetch}
+            disabled={loading}
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          >
+            {loading ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Download className="size-3.5" />
+            )}
+            {loading ? 'Fetching...' : 'Fetch'}
+          </button>
+
+          {(result || error) && (
+            <div className="border-t border-border pt-4">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
+                Content
+              </p>
+              <OutputRenderer
+                result={result}
+                error={error}
+                elapsed={elapsed}
+                serverName={serverName}
+                timestamp={timestamp}
+              />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -236,69 +250,84 @@ function ResourceTemplateInner({
   }, [serverId, resolvedUri, template, values, serverName, addHistoryEntry])
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="border-b border-border px-4 py-3">
-        <div className="flex items-center gap-2">
-          <FileText className="size-4 text-muted-foreground" />
-          <h3 className="font-mono text-sm font-semibold">{template.name}</h3>
-          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-            template
-          </span>
-        </div>
-        <p className="mt-1 font-mono text-[11px] text-muted-foreground">{template.uriTemplate}</p>
-        {template.description && (
-          <p className="mt-1 text-xs text-muted-foreground">{template.description}</p>
-        )}
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {params.length > 0 && (
-          <div className="space-y-3">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              Template Parameters
-            </p>
-            {params.map((param) => (
-              <div key={param} className="space-y-1">
-                <label className="text-xs font-mono font-medium">{param}</label>
-                <input
-                  type="text"
-                  value={values[param] ?? ''}
-                  onChange={(e) => setValues({ ...values, [param]: e.target.value })}
-                  className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs font-mono outline-none focus:ring-1 focus:ring-ring"
-                />
-              </div>
-            ))}
-            <p className="text-[11px] text-muted-foreground font-mono">{resolvedUri}</p>
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+        <div className="border-b border-border px-4 py-3">
+          <div className="flex items-center gap-2">
+            <FileText className="size-4 text-muted-foreground" />
+            <h3 className="font-mono text-sm font-semibold">{template.name}</h3>
+            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              template
+            </span>
           </div>
-        )}
-
-        <button
-          onClick={handleFetch}
-          disabled={loading}
-          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
-        >
-          {loading ? (
-            <Loader2 className="size-3.5 animate-spin" />
-          ) : (
-            <Download className="size-3.5" />
+          <p className="mt-1 font-mono text-[11px] text-muted-foreground break-all">
+            {template.uriTemplate}
+          </p>
+          {template.description && (
+            <p className="mt-1 text-xs text-muted-foreground break-words">{template.description}</p>
           )}
-          {loading ? 'Fetching...' : 'Fetch'}
-        </button>
-
-        {(result || error) && (
-          <div className="border-t border-border pt-4">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
-              Content
-            </p>
-            <OutputRenderer
-              result={result}
-              error={error}
-              elapsed={elapsed}
-              serverName={serverName}
-              timestamp={timestamp}
+          <div className="mt-3">
+            <RawJsonDisclosure
+              title="Raw resource template (from server)"
+              data={{
+                uriTemplate: template.uriTemplate,
+                name: template.name,
+                description: template.description,
+                mimeType: template.mimeType
+              }}
             />
           </div>
-        )}
+        </div>
+
+        <div className="p-4 space-y-4">
+          {params.length > 0 && (
+            <div className="space-y-3">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                Template Parameters
+              </p>
+              {params.map((param) => (
+                <div key={param} className="space-y-1">
+                  <label className="text-xs font-mono font-medium">{param}</label>
+                  <input
+                    type="text"
+                    value={values[param] ?? ''}
+                    onChange={(e) => setValues({ ...values, [param]: e.target.value })}
+                    className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs font-mono outline-none focus:ring-1 focus:ring-ring"
+                  />
+                </div>
+              ))}
+              <p className="text-[11px] text-muted-foreground font-mono break-all">{resolvedUri}</p>
+            </div>
+          )}
+
+          <button
+            onClick={handleFetch}
+            disabled={loading}
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          >
+            {loading ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Download className="size-3.5" />
+            )}
+            {loading ? 'Fetching...' : 'Fetch'}
+          </button>
+
+          {(result || error) && (
+            <div className="border-t border-border pt-4">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
+                Content
+              </p>
+              <OutputRenderer
+                result={result}
+                error={error}
+                elapsed={elapsed}
+                serverName={serverName}
+                timestamp={timestamp}
+              />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

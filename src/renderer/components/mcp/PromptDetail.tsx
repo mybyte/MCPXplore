@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import { useMcpStore, type CallHistoryEntry } from '@/stores/mcpStore'
 import { logUiError } from '@/lib/rendererLog'
 import { ChatMarkdown } from '@/components/chat/ChatMarkdown'
+import { RawJsonDisclosure } from './RawJsonDisclosure'
 
 type PromptMessage = {
   role: string
@@ -117,88 +118,97 @@ function PromptDetailInner({
   }, [serverId, prompt.name, values, serverName, addHistoryEntry])
 
   return (
-    <div className="flex h-full flex-col">
-      {/* Header */}
-      <div className="border-b border-border px-4 py-3">
-        <div className="flex items-center gap-2">
-          <MessageSquare className="size-4 text-muted-foreground" />
-          <h3 className="font-mono text-sm font-semibold">{prompt.name}</h3>
-        </div>
-        {prompt.description && (
-          <p className="mt-1 text-xs text-muted-foreground leading-relaxed">{prompt.description}</p>
-        )}
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* Arguments */}
-        {args.length > 0 && (
-          <div className="space-y-3">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              Arguments
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+        <div className="border-b border-border px-4 py-3">
+          <div className="flex items-center gap-2">
+            <MessageSquare className="size-4 text-muted-foreground" />
+            <h3 className="font-mono text-sm font-semibold">{prompt.name}</h3>
+          </div>
+          {prompt.description && (
+            <p className="mt-1 text-xs text-muted-foreground leading-relaxed break-words">
+              {prompt.description}
             </p>
-            {args.map((arg) => (
-              <div key={arg.name} className="space-y-1">
-                <label className="flex items-baseline gap-1 text-xs font-medium">
-                  <span className="font-mono">{arg.name}</span>
-                  {arg.required && <span className="text-destructive">*</span>}
-                </label>
-                {arg.description && (
-                  <p className="text-[11px] text-muted-foreground">{arg.description}</p>
-                )}
-                <input
-                  type="text"
-                  value={values[arg.name] ?? ''}
-                  onChange={(e) => setValues({ ...values, [arg.name]: e.target.value })}
-                  disabled={running}
-                  className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs font-mono outline-none focus:ring-1 focus:ring-ring"
-                />
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Run button */}
-        <button
-          onClick={handleRun}
-          disabled={running}
-          className={cn(
-            'inline-flex items-center gap-1.5 rounded-md px-4 py-1.5 text-xs font-medium transition-colors',
-            'bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50'
           )}
-        >
-          {running ? (
-            <Loader2 className="size-3.5 animate-spin" />
-          ) : (
-            <Play className="size-3.5" />
-          )}
-          {running ? 'Getting prompt...' : 'Get Prompt'}
-        </button>
-
-        {/* Error */}
-        {error && (
-          <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-            {error}
+          <div className="mt-3">
+            <RawJsonDisclosure
+              title="Raw prompt (from server)"
+              data={{
+                name: prompt.name,
+                description: prompt.description,
+                arguments: prompt.arguments ?? []
+              }}
+            />
           </div>
-        )}
+        </div>
 
-        {/* Result: messages */}
-        {result?.messages && result.messages.length > 0 && (
-          <div className="border-t border-border pt-4 space-y-3">
-            <div className="flex items-center justify-between">
+        <div className="p-4 space-y-4">
+          {args.length > 0 && (
+            <div className="space-y-3">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Messages ({result.messages.length})
+                Arguments
               </p>
-              {elapsed != null && (
-                <span className="text-[11px] text-muted-foreground">
-                  {elapsed < 1000 ? `${elapsed}ms` : `${(elapsed / 1000).toFixed(1)}s`}
-                </span>
-              )}
+              {args.map((arg) => (
+                <div key={arg.name} className="space-y-1">
+                  <label className="flex items-baseline gap-1 text-xs font-medium">
+                    <span className="font-mono">{arg.name}</span>
+                    {arg.required && <span className="text-destructive">*</span>}
+                  </label>
+                  {arg.description && (
+                    <p className="text-[11px] text-muted-foreground break-words">{arg.description}</p>
+                  )}
+                  <input
+                    type="text"
+                    value={values[arg.name] ?? ''}
+                    onChange={(e) => setValues({ ...values, [arg.name]: e.target.value })}
+                    disabled={running}
+                    className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs font-mono outline-none focus:ring-1 focus:ring-ring"
+                  />
+                </div>
+              ))}
             </div>
-            {result.messages.map((msg, i) => (
-              <MessageBubble key={i} message={msg} />
-            ))}
-          </div>
-        )}
+          )}
+
+          <button
+            onClick={handleRun}
+            disabled={running}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-md px-4 py-1.5 text-xs font-medium transition-colors',
+              'bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50'
+            )}
+          >
+            {running ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Play className="size-3.5" />
+            )}
+            {running ? 'Getting prompt...' : 'Get Prompt'}
+          </button>
+
+          {error && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+              {error}
+            </div>
+          )}
+
+          {result?.messages && result.messages.length > 0 && (
+            <div className="border-t border-border pt-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  Messages ({result.messages.length})
+                </p>
+                {elapsed != null && (
+                  <span className="text-[11px] text-muted-foreground">
+                    {elapsed < 1000 ? `${elapsed}ms` : `${(elapsed / 1000).toFixed(1)}s`}
+                  </span>
+                )}
+              </div>
+              {result.messages.map((msg, i) => (
+                <MessageBubble key={i} message={msg} />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

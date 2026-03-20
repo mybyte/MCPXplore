@@ -5,6 +5,7 @@ import { useMcpStore, type McpTool, type CallHistoryEntry } from '@/stores/mcpSt
 import { logUiError } from '@/lib/rendererLog'
 import { SchemaForm } from './SchemaForm'
 import { OutputRenderer, type McpCallResult } from './OutputRenderer'
+import { RawJsonDisclosure } from './RawJsonDisclosure'
 
 export function ToolDetail() {
   const selection = useMcpStore((s) => s.selection)
@@ -18,7 +19,7 @@ export function ToolDetail() {
 
   if (!tool || !server) {
     return (
-      <div className="flex h-full items-center justify-center">
+      <div className="flex min-h-0 flex-1 items-center justify-center">
         <p className="text-xs text-muted-foreground">Tool not found</p>
       </div>
     )
@@ -107,22 +108,32 @@ function ToolDetailInner({
   }, [serverId, tool.name, args, serverName, addHistoryEntry])
 
   return (
-    <div className="flex h-full flex-col">
-      {/* Header */}
-      <div className="border-b border-border px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Wrench className="size-4 text-muted-foreground" />
-          <h3 className="font-mono text-sm font-semibold">{tool.name}</h3>
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      {/* One scroll region: long descriptions must not steal height from arguments */}
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+        <div className="border-b border-border px-4 py-3">
+          <div className="flex items-center gap-2">
+            <Wrench className="size-4 text-muted-foreground" />
+            <h3 className="font-mono text-sm font-semibold">{tool.name}</h3>
+          </div>
+          {tool.description && (
+            <p className="mt-1 text-xs text-muted-foreground leading-relaxed break-words">
+              {tool.description}
+            </p>
+          )}
+          <div className="mt-3">
+            <RawJsonDisclosure
+              title="Raw tool descriptor (from server)"
+              data={{
+                name: tool.name,
+                description: tool.description,
+                inputSchema: tool.inputSchema ?? null
+              }}
+            />
+          </div>
         </div>
-        {tool.description && (
-          <p className="mt-1 text-xs text-muted-foreground leading-relaxed">{tool.description}</p>
-        )}
-      </div>
 
-      {/* Form + Output */}
-      <div className="flex-1 overflow-y-auto">
         <div className="p-4 space-y-4">
-          {/* Arguments form */}
           <SchemaForm
             schema={schema as never}
             value={args}
@@ -130,7 +141,6 @@ function ToolDetailInner({
             disabled={running}
           />
 
-          {/* Run button */}
           <div className="flex items-center gap-2">
             <button
               onClick={handleRun}
@@ -157,7 +167,6 @@ function ToolDetailInner({
             )}
           </div>
 
-          {/* Output */}
           {(result || error) && (
             <div className="border-t border-border pt-4">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">

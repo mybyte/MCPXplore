@@ -196,7 +196,7 @@ function SchemaFormField({
         </span>
       </label>
       {description && (
-        <p className="text-[11px] text-muted-foreground leading-snug">{description}</p>
+        <p className="text-[11px] text-muted-foreground leading-snug break-words">{description}</p>
       )}
       <FieldInput
         type={type}
