@@ -9,7 +9,9 @@ import {
   Cpu,
   MessageSquare,
   SearchIcon,
-  Timer
+  Timer,
+  History,
+  Radio
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { McpToolSettings, type McpToolSettingsProps } from './McpToolSettings'
@@ -27,9 +29,7 @@ export interface ToolSearchTrace {
   contextCharsSent: number
   durationMs: number
   results: ToolSearchTraceItem[]
-  // Semantic-specific
   embeddingFieldName?: string
-  // Agentic-specific
   systemPrompt?: string
   justification?: string
   composedQuery?: string
@@ -58,10 +58,26 @@ export interface WorkingsData {
   toolSearchTrace?: ToolSearchTrace
 }
 
-type SideTab = 'reply' | 'tools'
+export interface HistoricalTurn {
+  _id: string
+  chatId: string
+  model?: string
+  timestamp: number
+  content?: string
+  reasoning?: string
+  toolSelection?: ToolSearchTrace
+  toolCalls?: WorkingsData['toolCalls']
+  usage?: WorkingsData['usage']
+  durations?: MessageDurations
+  error?: string
+}
+
+type SideTab = 'history' | 'tools'
 
 interface WorkingsPanelProps {
   data: WorkingsData
+  historicalTurns: HistoricalTurn[]
+  isStreaming: boolean
   open: boolean
   onClose: () => void
   mcpToolsMode: McpToolsMode
@@ -78,6 +94,8 @@ interface WorkingsPanelProps {
 
 export function WorkingsPanel({
   data,
+  historicalTurns,
+  isStreaming,
   open,
   onClose,
   mcpToolsMode,
@@ -91,7 +109,7 @@ export function WorkingsPanel({
   onAgenticSystemPromptChange,
   onToolSelectionConfigChange
 }: WorkingsPanelProps) {
-  const [tab, setTab] = useState<SideTab>('reply')
+  const [tab, setTab] = useState<SideTab>('history')
 
   if (!open) return null
 
@@ -121,15 +139,15 @@ export function WorkingsPanel({
           <button
             type="button"
             role="tab"
-            aria-selected={tab === 'reply'}
-            onClick={() => setTab('reply')}
+            aria-selected={tab === 'history'}
+            onClick={() => setTab('history')}
             className={cn(
               'flex flex-1 items-center justify-center gap-1 rounded px-2 py-1.5 text-xs font-medium transition-colors',
-              tab === 'reply' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
+              tab === 'history' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
             )}
           >
-            <MessageSquare className="size-3 shrink-0" />
-            <span className="truncate">Last reply</span>
+            <History className="size-3 shrink-0" />
+            <span className="truncate">History</span>
           </button>
           <button
             type="button"
@@ -162,8 +180,8 @@ export function WorkingsPanel({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col">
-        {tab === 'reply' ? (
-          <WorkingsReplyTab data={data} />
+        {tab === 'history' ? (
+          <WorkingsHistoryTab data={data} historicalTurns={historicalTurns} isStreaming={isStreaming} />
         ) : (
           <McpToolSettings {...toolSettingsProps} />
         )}
@@ -172,42 +190,162 @@ export function WorkingsPanel({
   )
 }
 
-function WorkingsReplyTab({ data }: { data: WorkingsData }) {
-  const hasContent =
+function WorkingsHistoryTab({
+  data,
+  historicalTurns,
+  isStreaming
+}: {
+  data: WorkingsData
+  historicalTurns: HistoricalTurn[]
+  isStreaming: boolean
+}) {
+  const liveHasContent =
     data.reasoning || data.toolCalls.length > 0 || data.usage || data.durations || data.model || data.toolSearchTrace
+  const showLive = isStreaming || liveHasContent
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3">
-      <p className="mb-3 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-        Reasoning, tool calls, and usage for the latest assistant response
-      </p>
-      <div className="space-y-3">
-        {!hasContent && (
-          <p className="text-center text-xs text-muted-foreground py-8">
-            Send a message to see the model&apos;s workings here.
-          </p>
-        )}
+      {!showLive && historicalTurns.length === 0 && (
+        <p className="text-center text-xs text-muted-foreground py-8">
+          Send a message to see the model&apos;s workings here.
+        </p>
+      )}
 
-        {data.model && (
-          <div className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5">
-            <Cpu className="size-3 text-muted-foreground" />
-            <span className="text-[11px] text-muted-foreground">{data.model}</span>
-          </div>
-        )}
+      {showLive && (
+        <TurnCard
+          label={isStreaming ? 'Streaming...' : 'Latest turn'}
+          model={data.model}
+          timestamp={undefined}
+          defaultExpanded
+          isLive={isStreaming}
+        >
+          <TurnWorkings
+            reasoning={data.reasoning}
+            toolCalls={data.toolCalls}
+            usage={data.usage}
+            durations={data.durations}
+            toolSearchTrace={data.toolSearchTrace}
+          />
+        </TurnCard>
+      )}
 
-        {data.durations && <DurationsSection durations={data.durations} />}
-
-        {data.toolSearchTrace && <ToolSearchSection trace={data.toolSearchTrace} />}
-
-        {data.reasoning && <ReasoningSection text={data.reasoning} durationMs={data.durations?.reasoningMs} />}
-
-        {data.toolCalls.map((tc) => (
-          <ToolCallSection key={tc.id} toolCall={tc} />
-        ))}
-
-        {data.usage && <UsageSection usage={data.usage} />}
-      </div>
+      {historicalTurns.map((t) => (
+        <TurnCard
+          key={t._id}
+          label={undefined}
+          model={t.model}
+          timestamp={t.timestamp}
+          defaultExpanded={!showLive && historicalTurns[0]?._id === t._id}
+          isLive={false}
+        >
+          <TurnWorkings
+            reasoning={t.reasoning}
+            toolCalls={t.toolCalls ?? []}
+            usage={t.usage}
+            durations={t.durations}
+            toolSearchTrace={t.toolSelection}
+            error={t.error}
+          />
+        </TurnCard>
+      ))}
     </div>
+  )
+}
+
+function TurnCard({
+  label,
+  model,
+  timestamp,
+  defaultExpanded,
+  isLive,
+  children
+}: {
+  label?: string
+  model?: string
+  timestamp?: number
+  defaultExpanded: boolean
+  isLive: boolean
+  children: React.ReactNode
+}) {
+  const [expanded, setExpanded] = useState(defaultExpanded)
+
+  const timeStr = timestamp ? new Date(timestamp).toLocaleString(undefined, {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit'
+  }) : undefined
+
+  return (
+    <div className={cn('mb-2 rounded-lg border', isLive ? 'border-primary/40' : 'border-border')}>
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center gap-2 px-2.5 py-2 text-left"
+      >
+        {expanded ? (
+          <ChevronDown className="size-3 text-muted-foreground" />
+        ) : (
+          <ChevronRight className="size-3 text-muted-foreground" />
+        )}
+        {isLive ? (
+          <Radio className="size-3 text-primary animate-pulse" />
+        ) : (
+          <MessageSquare className="size-3 text-muted-foreground" />
+        )}
+        <span className="flex-1 min-w-0">
+          {label && <span className="text-xs font-medium">{label}</span>}
+          {!label && model && (
+            <span className="block truncate text-[11px] text-muted-foreground">{model}</span>
+          )}
+          {timeStr && (
+            <span className="block text-[10px] text-muted-foreground/70">{timeStr}</span>
+          )}
+        </span>
+      </button>
+      {expanded && (
+        <div className="border-t border-border px-2.5 py-2.5 space-y-3">
+          {model && label && (
+            <div className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5">
+              <Cpu className="size-3 text-muted-foreground" />
+              <span className="text-[11px] text-muted-foreground">{model}</span>
+            </div>
+          )}
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TurnWorkings({
+  reasoning,
+  toolCalls,
+  usage,
+  durations,
+  toolSearchTrace,
+  error
+}: {
+  reasoning?: string
+  toolCalls: WorkingsData['toolCalls']
+  usage?: WorkingsData['usage']
+  durations?: MessageDurations
+  toolSearchTrace?: ToolSearchTrace
+  error?: string
+}) {
+  return (
+    <>
+      {durations && <DurationsSection durations={durations} />}
+      {toolSearchTrace && <ToolSearchSection trace={toolSearchTrace} />}
+      {reasoning && <ReasoningSection text={reasoning} durationMs={durations?.reasoningMs} />}
+      {toolCalls.map((tc) => (
+        <ToolCallSection key={tc.id} toolCall={tc} />
+      ))}
+      {usage && <UsageSection usage={usage} />}
+      {error && (
+        <div className="rounded-md border border-red-500/30 px-2.5 py-2">
+          <p className="text-[10px] font-medium text-red-500 mb-1">Error</p>
+          <p className="text-[10px] text-muted-foreground whitespace-pre-wrap">{error}</p>
+        </div>
+      )}
+    </>
   )
 }
 
@@ -463,7 +601,8 @@ const STEP_COLORS: Record<string, string> = {
   'Tool selection': 'bg-indigo-500',
   Reasoning: 'bg-purple-500',
   'Text generation': 'bg-sky-500',
-  'Tool calls': 'bg-blue-500'
+  'Tool calls': 'bg-blue-500',
+  'Output generation': 'bg-emerald-500'
 }
 
 function DurationsSection({ durations }: { durations: MessageDurations }) {
@@ -481,6 +620,9 @@ function DurationsSection({ durations }: { durations: MessageDurations }) {
   }
   if (durations.toolCallsMs > 0) {
     steps.push({ label: 'Tool calls', ms: durations.toolCallsMs, color: STEP_COLORS['Tool calls'] })
+  }
+  if (durations.outputMs !== undefined) {
+    steps.push({ label: 'Output generation', ms: durations.outputMs, color: STEP_COLORS['Output generation'] })
   }
 
   const maxMs = Math.max(...steps.map((s) => s.ms), 1)

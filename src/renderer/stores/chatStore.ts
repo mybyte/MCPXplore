@@ -41,6 +41,7 @@ export interface MessageDurations {
   generationMs?: number
   toolCallsMs: number
   firstTokenMs?: number
+  outputMs?: number
 }
 
 export interface Message {

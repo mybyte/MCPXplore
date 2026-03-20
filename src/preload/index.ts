@@ -65,6 +65,11 @@ const api = {
     databaseName: string
     chats: Record<string, unknown>[]
   }) => ipcRenderer.invoke('mongo:syncChats', payload),
+  mongoLoadChatTurns: (payload: {
+    connectionUri: string
+    databaseName: string
+    chatId: string
+  }) => ipcRenderer.invoke('mongo:loadChatTurns', payload),
 
   getDefaultAgenticSystemPrompt: () =>
     ipcRenderer.invoke('config:defaultAgenticSystemPrompt') as Promise<string>,

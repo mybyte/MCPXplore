@@ -3,8 +3,10 @@ import { getConfigStore } from '../config/store'
 import { TOOLS_COLLECTION, ensureToolsSearchIndex } from './search-index'
 
 const CHATS_COLLECTION = 'mcpxplore_chats'
+const TURNS_COLLECTION = 'mcpxplore_chat_turns'
 
 type ChatDoc = Document & { _id: string }
+type TurnDoc = Document & { _id: string; chatId: string }
 
 function invalidDbName(name: string): string | null {
   const t = name.trim()
@@ -49,6 +51,12 @@ export async function mongoEnsureDatabase(
 
     const hasChatsColl = await db.listCollections({ name: CHATS_COLLECTION }).hasNext()
     if (!hasChatsColl) await db.createCollection(CHATS_COLLECTION)
+
+    const hasTurnsColl = await db.listCollections({ name: TURNS_COLLECTION }).hasNext()
+    if (!hasTurnsColl) await db.createCollection(TURNS_COLLECTION)
+    await db.collection(TURNS_COLLECTION)
+      .createIndex({ chatId: 1, timestamp: 1 })
+      .catch(() => {})
 
     const hasToolsColl = await db.listCollections({ name: TOOLS_COLLECTION }).hasNext()
     if (!hasToolsColl) await db.createCollection(TOOLS_COLLECTION)
@@ -236,6 +244,52 @@ export async function mongoSyncChats(
       if (!id) continue
       await coll.replaceOne({ _id: id }, toChatDoc(chat), { upsert: true })
     }
+  } finally {
+    await client?.close().catch(() => {})
+  }
+}
+
+// ── Chat Turns ──────────────────────────────────────────────────────
+
+export async function mongoSaveChatTurn(
+  connectionUri: string,
+  databaseName: string,
+  turn: Record<string, unknown>
+): Promise<void> {
+  const uri = connectionUri.trim()
+  const dbn = databaseName.trim()
+  if (!uri || !dbn) return
+  const id = String(turn._id ?? turn.messageId ?? '')
+  if (!id) return
+  let client: MongoClient | undefined
+  try {
+    client = new MongoClient(uri, { serverSelectionTimeoutMS: 12_000 })
+    await client.connect()
+    const coll = client.db(dbn).collection<TurnDoc>(TURNS_COLLECTION)
+    const doc = { ...turn, _id: id } as TurnDoc
+    await coll.replaceOne({ _id: id }, doc, { upsert: true })
+  } finally {
+    await client?.close().catch(() => {})
+  }
+}
+
+export async function mongoLoadChatTurns(
+  connectionUri: string,
+  databaseName: string,
+  chatId: string
+): Promise<Record<string, unknown>[]> {
+  const uri = connectionUri.trim()
+  const dbn = databaseName.trim()
+  const err = invalidDbName(dbn)
+  if (!uri) throw new Error('Connection URI is empty')
+  if (err) throw new Error(err)
+  if (!chatId) return []
+  let client: MongoClient | undefined
+  try {
+    client = new MongoClient(uri, { serverSelectionTimeoutMS: 12_000 })
+    await client.connect()
+    const coll = client.db(dbn).collection<TurnDoc>(TURNS_COLLECTION)
+    return (await coll.find({ chatId }).sort({ timestamp: -1 }).toArray()) as Record<string, unknown>[]
   } finally {
     await client?.close().catch(() => {})
   }

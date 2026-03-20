@@ -10,6 +10,7 @@ import { formatApiError } from './llm/format-error'
 import {
   mongoEnsureDatabase,
   mongoLoadChats,
+  mongoLoadChatTurns,
   mongoSyncChats,
   mongoTestConnection
 } from './mongo/service'
@@ -364,6 +365,20 @@ export function registerIpcHandlers(): void {
         typeof payload?.connectionUri === 'string' ? payload.connectionUri : '',
         typeof payload?.databaseName === 'string' ? payload.databaseName : '',
         chats
+      )
+    }
+  )
+
+  ipcMain.handle(
+    'mongo:loadChatTurns',
+    async (
+      _event,
+      payload: { connectionUri?: string; databaseName?: string; chatId?: string }
+    ) => {
+      return mongoLoadChatTurns(
+        typeof payload?.connectionUri === 'string' ? payload.connectionUri : '',
+        typeof payload?.databaseName === 'string' ? payload.databaseName : '',
+        typeof payload?.chatId === 'string' ? payload.chatId : ''
       )
     }
   )

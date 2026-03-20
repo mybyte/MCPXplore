@@ -49,15 +49,83 @@ async function fetchViaOpenAISdk(req: FetchModelsRequest): Promise<string[]> {
   return ids
 }
 
+/** @see https://docs.fireworks.ai/api-reference/create-model (gatewayModelKind) */
+type FireworksGatewayModelKind =
+  | 'KIND_UNSPECIFIED'
+  | 'HF_BASE_MODEL'
+  | 'HF_PEFT_ADDON'
+  | 'HF_TEFT_ADDON'
+  | 'FLUMINA_BASE_MODEL'
+  | 'FLUMINA_ADDON'
+  | 'DRAFT_ADDON'
+  | 'FIRE_AGENT'
+  | 'LIVE_MERGE'
+  | 'CUSTOM_MODEL'
+  | 'EMBEDDING_MODEL'
+  | 'SNAPSHOT_MODEL'
+
+interface FireworksGatewayListModel {
+  name?: string
+  kind?: string
+  supportsServerless?: boolean
+  baseModelDetails?: { modelType?: string }
+}
+
+/** Decoder / chat LLM families — excludes embeddings, draft, agents, merges, snapshots. */
+const FIREWORKS_LLM_KINDS = new Set<FireworksGatewayModelKind>([
+  'HF_BASE_MODEL',
+  'HF_PEFT_ADDON',
+  'HF_TEFT_ADDON',
+  'FLUMINA_BASE_MODEL',
+  'FLUMINA_ADDON',
+  'CUSTOM_MODEL'
+])
+
+function fireworksModelSlug(name: string): string {
+  const i = name.lastIndexOf('/')
+  return i >= 0 ? name.slice(i + 1) : name
+}
+
+/** Image / diffusion models are often still HF_BASE_MODEL; trim via modelType + id slug. */
+function isFireworksNonLanguageModel(m: FireworksGatewayListModel): boolean {
+  const t = m.baseModelDetails?.modelType?.toLowerCase() ?? ''
+  if (
+    t.includes('flux') ||
+    t.includes('sdxl') ||
+    t.includes('diffusion') ||
+    t.includes('imagen') ||
+    t.includes('rerank')
+  ) {
+    return true
+  }
+
+  const slug = m.name ? fireworksModelSlug(m.name).toLowerCase() : ''
+  return /flux|sdxl|stable-diffusion|playground-v2|kontext|controlnet|\brerank|embedding/.test(slug)
+}
+
+function isFireworksLanguageLlm(
+  m: FireworksGatewayListModel
+): m is FireworksGatewayListModel & { name: string } {
+  if (!m.name || m.supportsServerless !== true) return false
+  const kind = m.kind as FireworksGatewayModelKind | undefined
+  if (!kind || !FIREWORKS_LLM_KINDS.has(kind)) return false
+  if (isFireworksNonLanguageModel(m)) return false
+  return true
+}
+
 /**
- * Fireworks uses a custom REST endpoint outside the OpenAI-compat layer.
- * Paginate through all results (200 per page max).
+ * Fireworks Gateway list-models API (not the OpenAI-compat /models route).
+ * Paginates with `pageToken` / `nextPageToken` until no further page; `pageSize` is capped at 200.
+ * @see https://docs.fireworks.ai/api-reference/list-models
  */
 async function fetchFireworksModels(req: FetchModelsRequest): Promise<string[]> {
   const ids: string[] = []
   let pageToken: string | undefined
+  /** Guard against a buggy or stuck API repeating the same token. */
+  const seenTokens = new Set<string>()
+  const maxPages = 500
 
-  for (;;) {
+  for (let page = 0; page < maxPages; page++) {
     const url = new URL('https://api.fireworks.ai/v1/accounts/fireworks/models')
     url.searchParams.set('pageSize', '200')
     if (pageToken) url.searchParams.set('pageToken', pageToken)
@@ -71,16 +139,19 @@ async function fetchFireworksModels(req: FetchModelsRequest): Promise<string[]> 
     }
 
     const data = (await res.json()) as {
-      models?: Array<{ name?: string; displayName?: string }>
+      models?: FireworksGatewayListModel[]
       nextPageToken?: string
     }
 
     for (const m of data.models ?? []) {
-      if (m.name) ids.push(m.name)
+      if (isFireworksLanguageLlm(m)) ids.push(m.name)
     }
 
-    if (!data.nextPageToken) break
-    pageToken = data.nextPageToken
+    const next = data.nextPageToken?.trim()
+    if (!next) break
+    if (seenTokens.has(next)) break
+    seenTokens.add(next)
+    pageToken = next
   }
 
   ids.sort((a, b) => a.localeCompare(b))

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useChatStore, type Message, type MessageDurations, DEFAULT_TOOL_SELECTION_CONFIG } from '@/stores/chatStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useAppStore } from '@/stores/appStore'
-import { WorkingsPanel, type WorkingsData, type ToolSearchTrace } from './WorkingsPanel'
+import { WorkingsPanel, type WorkingsData, type ToolSearchTrace, type HistoricalTurn } from './WorkingsPanel'
 import {
   MessageSquare,
   Send,
@@ -63,6 +63,22 @@ export function ChatView() {
     usage: undefined,
     model: undefined
   })
+
+  // Historical turns loaded from MongoDB
+  const [historicalTurns, setHistoricalTurns] = useState<HistoricalTurn[]>([])
+
+  const loadHistoricalTurns = useCallback(async (chatId: string) => {
+    try {
+      const secrets = await window.api.getSecrets({ type: 'mongo' })
+      const uri = (secrets.connectionUri ?? '').trim()
+      const db = useSettingsStore.getState().mongo.chatDatabase.trim()
+      if (!uri || !db) return
+      const turns = await window.api.mongoLoadChatTurns({ connectionUri: uri, databaseName: db, chatId })
+      setHistoricalTurns(Array.isArray(turns) ? (turns as HistoricalTurn[]) : [])
+    } catch {
+      setHistoricalTurns([])
+    }
+  }, [])
 
   // Sync provider/model UI from the active chat (and persist defaults onto new chats)
   useEffect(() => {
@@ -126,7 +142,9 @@ export function ChatView() {
     setEditingUserMessageId(null)
     setEditDraft('')
     setRerunMenuOpen(false)
-  }, [activeChatId])
+    setHistoricalTurns([])
+    if (activeChatId) void loadHistoricalTurns(activeChatId)
+  }, [activeChatId, loadHistoricalTurns])
 
   useEffect(() => {
     if (!rerunMenuOpen) return
@@ -233,6 +251,7 @@ export function ChatView() {
         }
         case 'finish': {
           setIsStreaming(false)
+          if (e.chatId) void loadHistoricalTurns(e.chatId)
           break
         }
       }
@@ -240,7 +259,7 @@ export function ChatView() {
     return () => {
       cleanup()
     }
-  }, [activeChatId])
+  }, [activeChatId, loadHistoricalTurns])
 
   const submitUserTurn = useCallback(
     async (
@@ -658,6 +677,8 @@ export function ChatView() {
       {/* Workings panel */}
       <WorkingsPanel
         data={workings}
+        historicalTurns={historicalTurns}
+        isStreaming={isStreaming}
         open={workingsPanelOpen}
         onClose={toggleWorkingsPanel}
         mcpToolsMode={activeChat.mcpToolsMode}

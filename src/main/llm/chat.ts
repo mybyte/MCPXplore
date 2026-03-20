@@ -12,6 +12,7 @@ import {
 import { resolveToolSelection } from './tool-selection'
 import { ThinkTagParser } from './reasoning'
 import { formatApiError } from './format-error'
+import { mongoSaveChatTurn } from '../mongo/service'
 
 const MAX_TOOL_STEPS = 10
 
@@ -67,6 +68,32 @@ export async function handleChatSend(
     }
   }
 
+  const modelLabel = `${provider.name}/${options.modelId}`
+  const turnTimestamp = Date.now()
+  const turn: Record<string, unknown> = {
+    _id: messageId,
+    chatId,
+    model: modelLabel,
+    timestamp: turnTimestamp,
+    content: '',
+    reasoning: '',
+    toolSelection: undefined,
+    toolCalls: [] as Record<string, unknown>[],
+    usage: undefined,
+    durations: undefined,
+    error: undefined
+  }
+
+  const persistTurn = () => {
+    const mongo = store.get('mongo')
+    const uri = mongo.connectionUri?.trim()
+    const db = mongo.chatDatabase?.trim()
+    if (!uri || !db) return
+    mongoSaveChatTurn(uri, db, turn).catch((e) =>
+      console.error('[llm:chat] Failed to persist turn:', e)
+    )
+  }
+
   try {
     const overallStart = Date.now()
     let toolSelectionMs: number | undefined
@@ -76,9 +103,16 @@ export async function handleChatSend(
     let textLastAt: number | undefined
     let firstTokenAt: number | undefined
     let totalToolCallsMs = 0
+    let outputStartAt: number | undefined
+    let outputEndAt: number | undefined
 
     const markFirstToken = () => {
       if (firstTokenAt === undefined) firstTokenAt = Date.now()
+    }
+    const markTextAt = (now: number) => {
+      if (textFirstAt === undefined) textFirstAt = now
+      textLastAt = now
+      if (outputStartAt !== undefined) outputEndAt = now
     }
 
     const mode = options.mcpToolsMode ?? 'all'
@@ -101,6 +135,7 @@ export async function handleChatSend(
       toolSelectionMs = Date.now() - tsStart
 
       broadcast({ type: 'tool-selection', chatId, messageId, data: result.trace })
+      turn.toolSelection = result.trace
 
       selection = { mode: 'pick', keys: result.keys }
     } else {
@@ -127,8 +162,15 @@ export async function handleChatSend(
     let totalInputTokens = 0
     let totalOutputTokens = 0
 
+    let completedSteps = 0
     for (let step = 0; step < MAX_TOOL_STEPS; step++) {
       if (abortController.signal.aborted) break
+
+      const stepStart = Date.now()
+      if (step > 0) {
+        outputStartAt = stepStart
+        outputEndAt = undefined
+      }
 
       const stream = await client.chat.completions.create(
         {
@@ -164,6 +206,7 @@ export async function handleChatSend(
           markFirstToken()
           if (reasoningFirstAt === undefined) reasoningFirstAt = now
           reasoningLastAt = now
+          turn.reasoning = (turn.reasoning as string) + reasoningContent
           broadcast({ type: 'reasoning-delta', chatId, messageId, data: reasoningContent })
         }
 
@@ -175,21 +218,22 @@ export async function handleChatSend(
               markFirstToken()
               if (reasoningFirstAt === undefined) reasoningFirstAt = now
               reasoningLastAt = now
+              turn.reasoning = (turn.reasoning as string) + reasoning
               broadcast({ type: 'reasoning-delta', chatId, messageId, data: reasoning })
             }
             if (text) {
               const now = Date.now()
               markFirstToken()
-              if (textFirstAt === undefined) textFirstAt = now
-              textLastAt = now
+              markTextAt(now)
+              turn.content = (turn.content as string) + text
               broadcast({ type: 'text-delta', chatId, messageId, data: text })
               assistantContent += text
             }
           } else {
             const now = Date.now()
             markFirstToken()
-            if (textFirstAt === undefined) textFirstAt = now
-            textLastAt = now
+            markTextAt(now)
+            turn.content = (turn.content as string) + delta.content
             broadcast({ type: 'text-delta', chatId, messageId, data: delta.content })
             assistantContent += delta.content
           }
@@ -209,19 +253,21 @@ export async function handleChatSend(
           markFirstToken()
           if (reasoningFirstAt === undefined) reasoningFirstAt = now
           reasoningLastAt = now
+          turn.reasoning = (turn.reasoning as string) + reasoning
           broadcast({ type: 'reasoning-delta', chatId, messageId, data: reasoning })
         }
         if (text) {
           const now = Date.now()
           markFirstToken()
-          if (textFirstAt === undefined) textFirstAt = now
-          textLastAt = now
+          markTextAt(now)
+          turn.content = (turn.content as string) + text
           broadcast({ type: 'text-delta', chatId, messageId, data: text })
           assistantContent += text
         }
       }
 
       const toolCalls = accumulator.getAll()
+      completedSteps = step + 1
       if (toolCalls.length === 0) break
 
       const toolResults: Array<{ toolCallId: string; content: string }> = []
@@ -236,6 +282,11 @@ export async function handleChatSend(
         } catch {
           args = {}
         }
+
+        const turnToolCall: Record<string, unknown> = {
+          id: call.id, name: call.name, args, status: 'pending'
+        }
+        ;(turn.toolCalls as Record<string, unknown>[]).push(turnToolCall)
 
         broadcast({
           type: 'tool-call-start',
@@ -253,22 +304,32 @@ export async function handleChatSend(
           )
           toolResults.push({ toolCallId, content })
 
+          const durationMs = Date.now() - callStart
+          turnToolCall.result = result
+          turnToolCall.status = 'success'
+          turnToolCall.durationMs = durationMs
+
           broadcast({
             type: 'tool-call-result',
             chatId,
             messageId,
-            data: { toolCallId, toolName, result, durationMs: Date.now() - callStart }
+            data: { toolCallId, toolName, result, durationMs }
           })
         } catch (err) {
           if (abortController.signal.aborted) break
           const errMsg = err instanceof Error ? err.message : String(err)
           toolResults.push({ toolCallId: call.id, content: `Error: ${errMsg}` })
 
+          const durationMs = Date.now() - callStart
+          turnToolCall.result = `Error: ${errMsg}`
+          turnToolCall.status = 'error'
+          turnToolCall.durationMs = durationMs
+
           broadcast({
             type: 'tool-call-result',
             chatId,
             messageId,
-            data: { toolCallId: call.id, toolName: call.name, result: `Error: ${errMsg}`, durationMs: Date.now() - callStart }
+            data: { toolCallId: call.id, toolName: call.name, result: `Error: ${errMsg}`, durationMs }
           })
         }
       }
@@ -280,42 +341,41 @@ export async function handleChatSend(
       assistantContent = ''
     }
 
-    broadcast({
-      type: 'usage',
-      chatId,
-      messageId,
-      data: {
-        promptTokens: totalInputTokens,
-        completionTokens: totalOutputTokens,
-        totalTokens: totalInputTokens + totalOutputTokens
-      }
-    })
+    const usageData = {
+      promptTokens: totalInputTokens,
+      completionTokens: totalOutputTokens,
+      totalTokens: totalInputTokens + totalOutputTokens
+    }
+    turn.usage = usageData
+    broadcast({ type: 'usage', chatId, messageId, data: usageData })
 
-    broadcast({
-      type: 'durations',
-      chatId,
-      messageId,
-      data: {
-        totalMs: Date.now() - overallStart,
-        ...(toolSelectionMs !== undefined ? { toolSelectionMs } : {}),
-        ...(reasoningFirstAt !== undefined && reasoningLastAt !== undefined
-          ? { reasoningMs: reasoningLastAt - reasoningFirstAt }
-          : {}),
-        ...(textFirstAt !== undefined && textLastAt !== undefined
-          ? { generationMs: textLastAt - textFirstAt }
-          : {}),
-        toolCallsMs: totalToolCallsMs,
-        ...(firstTokenAt !== undefined
-          ? { firstTokenMs: firstTokenAt - overallStart }
-          : {})
-      }
-    })
+    const durationsData = {
+      totalMs: Date.now() - overallStart,
+      ...(toolSelectionMs !== undefined ? { toolSelectionMs } : {}),
+      ...(reasoningFirstAt !== undefined && reasoningLastAt !== undefined
+        ? { reasoningMs: reasoningLastAt - reasoningFirstAt }
+        : {}),
+      ...(textFirstAt !== undefined && textLastAt !== undefined
+        ? { generationMs: textLastAt - textFirstAt }
+        : {}),
+      toolCallsMs: totalToolCallsMs,
+      ...(firstTokenAt !== undefined
+        ? { firstTokenMs: firstTokenAt - overallStart }
+        : {}),
+      ...(completedSteps > 1 && outputStartAt !== undefined && outputEndAt !== undefined
+        ? { outputMs: outputEndAt - outputStartAt }
+        : {})
+    }
+    turn.durations = durationsData
+    broadcast({ type: 'durations', chatId, messageId, data: durationsData })
 
     broadcast({ type: 'finish', chatId, messageId })
+    persistTurn()
   } catch (err) {
     if (!abortController.signal.aborted) {
       const full = formatApiError(err)
       console.error(`[llm:chat] chatId=${chatId} messageId=${messageId}\n${full}`)
+      turn.error = clipForChatUi(full)
       broadcast({
         type: 'error',
         chatId,
@@ -324,6 +384,7 @@ export async function handleChatSend(
       })
     }
     broadcast({ type: 'finish', chatId, messageId })
+    persistTurn()
   } finally {
     activeAbortControllers.delete(chatId)
   }
