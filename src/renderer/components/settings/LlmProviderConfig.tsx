@@ -219,6 +219,7 @@ export function LlmProviderConfig() {
   const removeProvider = useSettingsStore((s) => s.removeLlmProvider)
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingInitial, setEditingInitial] = useState<LlmProvider | null>(null)
   const [testBusyId, setTestBusyId] = useState<string | null>(null)
   const [testModelFor, setTestModelFor] = useState<Record<string, string>>({})
   const [testBanner, setTestBanner] = useState<{
@@ -227,10 +228,19 @@ export function LlmProviderConfig() {
     text: string
   } | null>(null)
 
+  const startEditing = async (id: string) => {
+    const provider = providers.find((p) => p.id === id)
+    if (!provider) return
+    const secrets = await window.api.getSecrets({ type: 'llm', id })
+    setEditingInitial({ ...provider, apiKey: secrets.apiKey ?? '' })
+    setEditingId(id)
+  }
+
   const handleSave = (provider: LlmProvider) => {
     if (editingId) {
       updateProvider(editingId, provider)
       setEditingId(null)
+      setEditingInitial(null)
     } else {
       addProvider(provider)
       setShowForm(false)
@@ -319,9 +329,9 @@ export function LlmProviderConfig() {
             editingId === provider.id ? (
               <ProviderForm
                 key={provider.id}
-                initial={provider}
+                initial={editingInitial ?? provider}
                 onSave={handleSave}
-                onCancel={() => setEditingId(null)}
+                onCancel={() => { setEditingId(null); setEditingInitial(null) }}
               />
             ) : (
               <div
@@ -391,7 +401,7 @@ export function LlmProviderConfig() {
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
                         type="button"
-                        onClick={() => setEditingId(provider.id)}
+                        onClick={() => void startEditing(provider.id)}
                         className="rounded-md p-1.5 text-muted-foreground hover:bg-accent transition-colors"
                       >
                         <Pencil className="size-3.5" />

@@ -1,11 +1,11 @@
 import { ipcMain, BrowserWindow } from 'electron'
-import { getConfigStore } from './config/store'
+import { getConfigStore, REDACTED } from './config/store'
+import type { MongoSettings, SecretsScope, LlmProviderConfig, EmbeddingsProviderConfig, McpServerConfig } from './config/store'
 import { getMcpManager } from './mcp/manager'
 import { handleChatSend, stopChat, testLlmConnection } from './llm/chat'
 import { testEmbeddingsConnection } from './llm/embeddings'
 import { fetchAvailableModels, type FetchModelsRequest } from './llm/models'
 import { formatApiError } from './llm/format-error'
-import type { AppConfig } from './config/store'
 import {
   mongoEnsureDatabase,
   mongoLoadChats,
@@ -59,32 +59,63 @@ export function registerIpcHandlers(): void {
 
   // ── Config ─────────────────────────────────────────────────────────
 
-  ipcMain.handle('config:getAll', () => store.getAll())
+  ipcMain.handle('config:getAll', () => store.getRedactedAll())
 
-  ipcMain.handle('config:get', (_event, key: keyof AppConfig) => store.get(key))
-
-  ipcMain.handle('config:set', (_event, key: keyof AppConfig, value: unknown) => {
-    store.set(key, value as AppConfig[typeof key])
+  ipcMain.handle('config:getSecrets', (_event, scope: SecretsScope) => {
+    return store.getSecrets(scope)
   })
 
-  ipcMain.handle('config:update', (_event, patch: Partial<AppConfig>) => {
-    store.update(patch)
+  ipcMain.handle('config:llmProviders:set', (_event, providers: LlmProviderConfig[]) => {
+    const existing = store.get('llmProviders')
+    const merged = providers.map((p) => {
+      if (p.apiKey === REDACTED) {
+        const prev = existing.find((x) => x.id === p.id)
+        return prev ? { ...p, apiKey: prev.apiKey } : p
+      }
+      return p
+    })
+    store.set('llmProviders', merged)
   })
 
-  ipcMain.handle('config:llmProviders:set', (_event, providers) => {
-    store.set('llmProviders', providers)
+  ipcMain.handle('config:embeddingsProviders:set', (_event, providers: EmbeddingsProviderConfig[]) => {
+    const existing = store.get('embeddingsProviders')
+    const merged = providers.map((p) => {
+      if (p.apiKey === REDACTED) {
+        const prev = existing.find((x) => x.id === p.id)
+        return prev ? { ...p, apiKey: prev.apiKey } : p
+      }
+      return p
+    })
+    store.set('embeddingsProviders', merged)
   })
 
-  ipcMain.handle('config:embeddingsProviders:set', (_event, providers) => {
-    store.set('embeddingsProviders', providers)
-  })
-
-  ipcMain.handle('config:mcpServers:set', (_event, servers) => {
-    store.set('mcpServers', servers)
+  ipcMain.handle('config:mcpServers:set', (_event, servers: McpServerConfig[]) => {
+    const existing = store.get('mcpServers')
+    const merged = servers.map((s) => {
+      if (s.env) {
+        const prevServer = existing.find((x) => x.id === s.id)
+        const prevEnv = prevServer?.env ?? {}
+        const resolvedEnv: Record<string, string> = {}
+        for (const [k, v] of Object.entries(s.env)) {
+          resolvedEnv[k] = v === REDACTED ? (prevEnv[k] ?? '') : v
+        }
+        return { ...s, env: resolvedEnv }
+      }
+      return s
+    })
+    store.set('mcpServers', merged)
   })
 
   ipcMain.handle('config:chats:set', (_event, chats) => {
     store.set('chats', chats)
+  })
+
+  ipcMain.handle('config:mongo:set', (_event, mongo: MongoSettings) => {
+    if (mongo.connectionUri === REDACTED || mongo.connectionUri.includes('***')) {
+      const existing = store.get('mongo')
+      mongo = { ...mongo, connectionUri: existing.connectionUri }
+    }
+    store.set('mongo', mongo)
   })
 
   // ── MCP ────────────────────────────────────────────────────────────

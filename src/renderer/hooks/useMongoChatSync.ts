@@ -23,27 +23,32 @@ function parseLoadedChat(raw: Record<string, unknown>): Chat | null {
 
 /** Loads chats from MongoDB when configured and keeps the store in sync (debounced). */
 export function useMongoChatSync() {
-  const connectionUri = useSettingsStore((s) => s.mongo.connectionUri)
+  const hasMongoUri = useSettingsStore((s) => !!s.mongo.connectionUri)
   const databaseName = useSettingsStore((s) => s.mongo.chatDatabase)
+  const resolvedUriRef = useRef('')
   const loadSessionRef = useRef(0)
   const mongoReadyRef = useRef(false)
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    const uri = connectionUri.trim()
     const db = databaseName.trim()
     loadSessionRef.current += 1
     mongoReadyRef.current = false
+    resolvedUriRef.current = ''
 
-    if (!uri || !db) {
-      return
-    }
+    if (!db) return
 
     const sid = loadSessionRef.current
     let cancelled = false
 
     ;(async () => {
       try {
+        const secrets = await window.api.getSecrets({ type: 'mongo' })
+        const uri = (secrets.connectionUri ?? '').trim()
+        if (cancelled || sid !== loadSessionRef.current) return
+        if (!uri) return
+        resolvedUriRef.current = uri
+
         const rawList = await window.api.mongoLoadChats({ connectionUri: uri, databaseName: db })
         if (cancelled || sid !== loadSessionRef.current) return
         const chats = (Array.isArray(rawList) ? rawList : [])
@@ -64,12 +69,11 @@ export function useMongoChatSync() {
     return () => {
       cancelled = true
     }
-  }, [connectionUri, databaseName])
+  }, [hasMongoUri, databaseName])
 
   useEffect(() => {
-    const uri = connectionUri.trim()
     const db = databaseName.trim()
-    if (!uri || !db) {
+    if (!db) {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current)
         debounceTimerRef.current = null
@@ -79,6 +83,8 @@ export function useMongoChatSync() {
 
     const runSync = () => {
       if (!mongoReadyRef.current) return
+      const uri = resolvedUriRef.current
+      if (!uri) return
       const chats = useChatStore.getState().chats
       void window.api
         .mongoSyncChats({
@@ -105,5 +111,5 @@ export function useMongoChatSync() {
         debounceTimerRef.current = null
       }
     }
-  }, [connectionUri, databaseName])
+  }, [hasMongoUri, databaseName])
 }

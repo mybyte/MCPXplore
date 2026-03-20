@@ -182,6 +182,15 @@ export function McpServerConfig() {
   const removeServer = useSettingsStore((s) => s.removeMcpServer)
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingInitial, setEditingInitial] = useState<McpServerConfigType | null>(null)
+
+  const startEditing = async (id: string) => {
+    const server = servers.find((s) => s.id === id)
+    if (!server) return
+    const secrets = await window.api.getSecrets({ type: 'mcp', id })
+    setEditingInitial({ ...server, env: Object.keys(secrets).length > 0 ? secrets : server.env })
+    setEditingId(id)
+  }
 
   const handleSave = (server: McpServerConfigType) => {
     const current = useSettingsStore.getState().mcpServers
@@ -189,6 +198,7 @@ export function McpServerConfig() {
       updateServer(editingId, server)
       void window.api.setMcpServers(current.map((s) => (s.id === editingId ? server : s)))
       setEditingId(null)
+      setEditingInitial(null)
     } else {
       addServer(server)
       void window.api.setMcpServers([...current, server])
@@ -238,9 +248,9 @@ export function McpServerConfig() {
             editingId === server.id ? (
               <ServerForm
                 key={server.id}
-                initial={server}
+                initial={editingInitial ?? server}
                 onSave={handleSave}
-                onCancel={() => setEditingId(null)}
+                onCancel={() => { setEditingId(null); setEditingInitial(null) }}
               />
             ) : (
               <div
@@ -267,7 +277,7 @@ export function McpServerConfig() {
                 </div>
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
-                    onClick={() => setEditingId(server.id)}
+                    onClick={() => void startEditing(server.id)}
                     className="rounded-md p-1.5 text-muted-foreground hover:bg-accent transition-colors"
                   >
                     <Pencil className="size-3.5" />

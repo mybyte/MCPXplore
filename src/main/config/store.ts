@@ -1,6 +1,7 @@
 import { app } from 'electron'
 import { join } from 'path'
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs'
+import { encryptSecret, decryptSecret } from './secrets'
 
 export interface MongoSettings {
   connectionUri: string
@@ -79,6 +80,66 @@ function normalizeChatMeta(entry: unknown): ChatMeta {
   }
 }
 
+function decryptConfigSecrets(config: AppConfig): void {
+  for (const p of config.llmProviders) {
+    if (p.apiKey) p.apiKey = decryptSecret(p.apiKey)
+  }
+  for (const p of config.embeddingsProviders) {
+    if (p.apiKey) p.apiKey = decryptSecret(p.apiKey)
+  }
+  for (const s of config.mcpServers) {
+    if (s.env) {
+      for (const key of Object.keys(s.env)) {
+        s.env[key] = decryptSecret(s.env[key])
+      }
+    }
+  }
+  if (config.mongo.connectionUri) {
+    config.mongo.connectionUri = decryptSecret(config.mongo.connectionUri)
+  }
+}
+
+function encryptConfigSecrets(config: AppConfig): AppConfig {
+  const clone: AppConfig = JSON.parse(JSON.stringify(config))
+  for (const p of clone.llmProviders) {
+    if (p.apiKey) p.apiKey = encryptSecret(p.apiKey)
+  }
+  for (const p of clone.embeddingsProviders) {
+    if (p.apiKey) p.apiKey = encryptSecret(p.apiKey)
+  }
+  for (const s of clone.mcpServers) {
+    if (s.env) {
+      for (const key of Object.keys(s.env)) {
+        s.env[key] = encryptSecret(s.env[key])
+      }
+    }
+  }
+  if (clone.mongo.connectionUri) {
+    clone.mongo.connectionUri = encryptSecret(clone.mongo.connectionUri)
+  }
+  return clone
+}
+
+export const REDACTED = '***'
+
+/**
+ * Replace user:password in a MongoDB URI with ***:*** so the host/db
+ * remain visible in the UI while credentials are hidden.
+ * Falls back to the generic REDACTED sentinel if parsing fails.
+ */
+export function maskMongoUri(uri: string): string {
+  if (!uri) return uri
+  const m = uri.match(/^(mongodb(?:\+srv)?:\/\/)([^@]+)@(.+)$/)
+  if (m) return `${m[1]}***:***@${m[3]}`
+  return REDACTED
+}
+
+export type SecretsScope =
+  | { type: 'llm'; id: string }
+  | { type: 'embeddings'; id: string }
+  | { type: 'mcp'; id: string }
+  | { type: 'mongo' }
+
 const DEFAULT_CONFIG: AppConfig = {
   llmProviders: [],
   embeddingsProviders: [],
@@ -115,6 +176,7 @@ class ConfigStore {
         if (!Array.isArray(parsed.connectedServerIds)) {
           parsed.connectedServerIds = []
         }
+        decryptConfigSecrets(parsed)
         return parsed
       }
     } catch {
@@ -125,7 +187,8 @@ class ConfigStore {
 
   private save(): void {
     try {
-      writeFileSync(this.configPath, JSON.stringify(this.config, null, 2), 'utf-8')
+      const toWrite = encryptConfigSecrets(this.config)
+      writeFileSync(this.configPath, JSON.stringify(toWrite, null, 2), 'utf-8')
     } catch (err) {
       console.error('Failed to save config:', err)
     }
@@ -135,17 +198,54 @@ class ConfigStore {
     return this.config
   }
 
+  getRedactedAll(): AppConfig {
+    const clone: AppConfig = JSON.parse(JSON.stringify(this.config))
+    for (const p of clone.llmProviders) {
+      if (p.apiKey) p.apiKey = REDACTED
+    }
+    for (const p of clone.embeddingsProviders) {
+      if (p.apiKey) p.apiKey = REDACTED
+    }
+    for (const s of clone.mcpServers) {
+      if (s.env) {
+        for (const key of Object.keys(s.env)) {
+          if (s.env[key]) s.env[key] = REDACTED
+        }
+      }
+    }
+    if (clone.mongo.connectionUri) {
+      clone.mongo.connectionUri = maskMongoUri(clone.mongo.connectionUri)
+    }
+    return clone
+  }
+
+  getSecrets(scope: SecretsScope): Record<string, string> {
+    switch (scope.type) {
+      case 'llm': {
+        const p = this.config.llmProviders.find((x) => x.id === scope.id)
+        return p ? { apiKey: p.apiKey } : {}
+      }
+      case 'embeddings': {
+        const p = this.config.embeddingsProviders.find((x) => x.id === scope.id)
+        return p ? { apiKey: p.apiKey } : {}
+      }
+      case 'mcp': {
+        const s = this.config.mcpServers.find((x) => x.id === scope.id)
+        return s?.env ? { ...s.env } : {}
+      }
+      case 'mongo':
+        return { connectionUri: this.config.mongo.connectionUri }
+      default:
+        return {}
+    }
+  }
+
   get<K extends keyof AppConfig>(key: K): AppConfig[K] {
     return this.config[key]
   }
 
   set<K extends keyof AppConfig>(key: K, value: AppConfig[K]): void {
     this.config[key] = value
-    this.save()
-  }
-
-  update(patch: Partial<AppConfig>): void {
-    this.config = { ...this.config, ...patch }
     this.save()
   }
 }

@@ -4,19 +4,20 @@ const api = {
   /** Host OS — used for macOS-only UI (e.g. title bar drag with hiddenInset). */
   platform: process.platform,
 
-  // Config
+  // Config (redacted — use getSecrets for real keys)
   configGetAll: () => ipcRenderer.invoke('config:getAll'),
-  configGet: (key: string) => ipcRenderer.invoke('config:get', key),
-  configSet: (key: string, value: unknown) => ipcRenderer.invoke('config:set', key, value),
-  configUpdate: (patch: Record<string, unknown>) => ipcRenderer.invoke('config:update', patch),
+  getSecrets: (scope: { type: 'llm' | 'embeddings' | 'mcp' | 'mongo'; id?: string }) =>
+    ipcRenderer.invoke('config:getSecrets', scope) as Promise<Record<string, string>>,
 
-  // Typed config shortcuts
+  // Typed config setters
   setLlmProviders: (providers: unknown[]) =>
     ipcRenderer.invoke('config:llmProviders:set', providers),
   setEmbeddingsProviders: (providers: unknown[]) =>
     ipcRenderer.invoke('config:embeddingsProviders:set', providers),
   setMcpServers: (servers: unknown[]) => ipcRenderer.invoke('config:mcpServers:set', servers),
   setChats: (chats: unknown[]) => ipcRenderer.invoke('config:chats:set', chats),
+  setMongo: (mongo: { connectionUri: string; chatDatabase: string }) =>
+    ipcRenderer.invoke('config:mongo:set', mongo),
 
   // MCP operations
   mcpConnect: (serverId: string) => ipcRenderer.invoke('mcp:connect', serverId),
