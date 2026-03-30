@@ -318,6 +318,26 @@ class McpManager {
   }
 
   /**
+   * Run `fn` and, if it fails with a session/transport error on a remote server,
+   * transparently reconnect and retry once.
+   */
+  private async withRemoteReconnect<T>(serverId: string, fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn()
+    } catch (err) {
+      const server = this.servers.get(serverId)
+      if (!server || !isRemoteMcpTransport(server.config) || !shouldAttemptRemoteTransportReconnect(err)) {
+        throw err
+      }
+      console.info(
+        `[mcp] remote session error for ${serverId} (${err instanceof Error ? err.message : String(err)}); reconnecting and retrying`
+      )
+      await this.reconnectRemoteMcpSession(serverId)
+      return await fn()
+    }
+  }
+
+  /**
    * Close the current remote transport and connect with a new one so Streamable HTTP gets a
    * fresh session (e.g. after the MCP server process restarted).
    */
@@ -435,16 +455,17 @@ class McpManager {
     args: Record<string, unknown>,
     options?: { signal?: AbortSignal }
   ): Promise<unknown> {
-    const server = this.servers.get(serverId)
-    if (!server || server.status.status !== 'connected') {
-      throw new Error(`Server ${serverId} is not connected`)
-    }
-    const result = await server.client.callTool(
-      { name: toolName, arguments: args },
-      undefined,
-      options?.signal ? { signal: options.signal } : undefined
-    )
-    return result
+    return this.withRemoteReconnect(serverId, () => {
+      const server = this.servers.get(serverId)
+      if (!server || server.status.status !== 'connected') {
+        throw new Error(`Server ${serverId} is not connected`)
+      }
+      return server.client.callTool(
+        { name: toolName, arguments: args },
+        undefined,
+        options?.signal ? { signal: options.signal } : undefined
+      )
+    })
   }
 
   async listResources(serverId: string): Promise<McpResourceInfo[]> {
@@ -454,12 +475,13 @@ class McpManager {
   }
 
   async readResource(serverId: string, uri: string): Promise<unknown> {
-    const server = this.servers.get(serverId)
-    if (!server || server.status.status !== 'connected') {
-      throw new Error(`Server ${serverId} is not connected`)
-    }
-    const result = await server.client.readResource({ uri })
-    return result
+    return this.withRemoteReconnect(serverId, () => {
+      const server = this.servers.get(serverId)
+      if (!server || server.status.status !== 'connected') {
+        throw new Error(`Server ${serverId} is not connected`)
+      }
+      return server.client.readResource({ uri })
+    })
   }
 
   async listPrompts(serverId: string): Promise<McpPromptInfo[]> {
@@ -473,12 +495,13 @@ class McpManager {
     name: string,
     args: Record<string, string>
   ): Promise<unknown> {
-    const server = this.servers.get(serverId)
-    if (!server || server.status.status !== 'connected') {
-      throw new Error(`Server ${serverId} is not connected`)
-    }
-    const result = await server.client.getPrompt({ name, arguments: args })
-    return result
+    return this.withRemoteReconnect(serverId, () => {
+      const server = this.servers.get(serverId)
+      if (!server || server.status.status !== 'connected') {
+        throw new Error(`Server ${serverId} is not connected`)
+      }
+      return server.client.getPrompt({ name, arguments: args })
+    })
   }
 
   async listResourceTemplates(serverId: string): Promise<McpResourceTemplateInfo[]> {

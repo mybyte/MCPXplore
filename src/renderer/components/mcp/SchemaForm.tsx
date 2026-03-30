@@ -161,7 +161,15 @@ function resolveType(schema: JsonSchema): string {
   }
   if (schema.properties) return 'object'
   if (schema.items) return 'array'
-  if (schema.oneOf || schema.anyOf) return 'string'
+  if (schema.oneOf || schema.anyOf) {
+    const variants = schema.oneOf ?? schema.anyOf ?? []
+    const nonNullVariants = variants.filter((v) => resolveType(v) !== 'null')
+    if (nonNullVariants.length === 0) return 'string'
+    const types = nonNullVariants.map((v) => resolveType(v))
+    const unique = [...new Set(types)]
+    if (unique.length === 1) return unique[0]
+    return 'object'
+  }
   return 'string'
 }
 
@@ -407,6 +415,68 @@ function ArrayField({
   )
 }
 
+function FreeformObjectField({
+  value,
+  onChange,
+  disabled
+}: {
+  value: unknown
+  onChange: (v: unknown) => void
+  disabled?: boolean
+}) {
+  const [text, setText] = useState(() =>
+    typeof value === 'object' && value !== null ? JSON.stringify(value, null, 2) : ''
+  )
+  const [parseError, setParseError] = useState<string | null>(null)
+  const lastValueRef = useRef(value)
+
+  useEffect(() => {
+    if (value !== lastValueRef.current) {
+      lastValueRef.current = value
+      setText(typeof value === 'object' && value !== null ? JSON.stringify(value, null, 2) : '')
+      setParseError(null)
+    }
+  }, [value])
+
+  const handleChange = useCallback(
+    (raw: string) => {
+      setText(raw)
+      if (raw.trim() === '') {
+        setParseError(null)
+        lastValueRef.current = undefined
+        onChange(undefined)
+        return
+      }
+      try {
+        const parsed = JSON.parse(raw)
+        setParseError(null)
+        lastValueRef.current = parsed
+        onChange(parsed)
+      } catch {
+        setParseError('Invalid JSON')
+      }
+    },
+    [onChange]
+  )
+
+  return (
+    <div className="space-y-1">
+      <textarea
+        value={text}
+        onChange={(e) => handleChange(e.target.value)}
+        disabled={disabled}
+        rows={3}
+        className={cn(
+          'w-full rounded-md border bg-background px-3 py-1.5 text-xs font-mono outline-none focus:ring-1 focus:ring-ring resize-y',
+          parseError ? 'border-destructive' : 'border-input'
+        )}
+        placeholder="{}"
+      />
+      {parseError && <p className="text-xs text-destructive">{parseError}</p>}
+    </div>
+  )
+}
+
 function ObjectField({
   schema,
   value,
@@ -428,22 +498,7 @@ function ObjectField({
   const required = new Set(schema.required ?? [])
 
   if (Object.keys(properties).length === 0) {
-    return (
-      <textarea
-        value={typeof value === 'object' ? JSON.stringify(value, null, 2) : ''}
-        onChange={(e) => {
-          try {
-            onChange(JSON.parse(e.target.value))
-          } catch {
-            // let user keep typing
-          }
-        }}
-        disabled={disabled}
-        rows={3}
-        className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs font-mono outline-none focus:ring-1 focus:ring-ring resize-y"
-        placeholder="{}"
-      />
-    )
+    return <FreeformObjectField value={value} onChange={onChange} disabled={disabled} />
   }
 
   return (
